@@ -18,6 +18,7 @@ export default function NodeInspector({
   onUpdatePrompt,
   onUpdateLabel,
   onRetryNode,
+  onClose,
   isRunning,
 }) {
   const template = NODE_TEMPLATES.find((t) => t.id === (node.templateId || node.id));
@@ -43,8 +44,23 @@ export default function NodeInspector({
     idle:    { label: '◌ Idle',    cls: 'text-gray-500 bg-gray-900/40 border-gray-800/40' },
   };
 
+  const isCustom = (node.templateId || node.id) === 'custom';
+
   return (
     <div className="w-80 border-l border-gray-800 bg-[#0d1117] p-5 overflow-y-auto flex-shrink-0 animate-slide-in">
+      {/* Close button — separate from Remove */}
+      {onClose && (
+        <div className="flex justify-end mb-2">
+          <button
+            onClick={onClose}
+            className="text-gray-700 hover:text-gray-400 text-sm transition-colors"
+            title="Close inspector (does not remove node)"
+          >
+            ✕ Close
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex justify-between items-start mb-4">
         <div className="flex-1 min-w-0">
@@ -73,10 +89,14 @@ export default function NodeInspector({
           )}
         </div>
         <button
-          onClick={() => onRemoveNode(node.id)}
+          onClick={() => {
+            if (window.confirm(`Remove "${node.customLabel || template.label}"? This cannot be undone.`)) {
+              onRemoveNode(node.id);
+            }
+          }}
           className="ml-2 flex-shrink-0 text-xs px-2.5 py-1 bg-red-950/30 border border-red-900/40 rounded-md text-red-300 hover:bg-red-950/50 transition-colors"
         >
-          ✕ Remove
+          🗑 Remove
         </button>
       </div>
 
@@ -93,6 +113,18 @@ export default function NodeInspector({
           </span>
         )}
       </div>
+
+      {/* Custom node guidance */}
+      {isCustom && !node.customPrompt && (
+        <div className="mb-4 p-3 rounded-lg bg-indigo-950/20 border border-indigo-900/40">
+          <p className="text-[11px] text-indigo-300 font-semibold mb-1">🛠️ Custom Step</p>
+          <p className="text-[11px] text-gray-400 leading-relaxed">
+            1. Click the name above to rename this step.<br />
+            2. Write a system prompt below to define what it does — be specific.<br />
+            3. Connect it to other nodes using the Depends On section.
+          </p>
+        </div>
+      )}
 
       {/* Recovery panel — shown when node failed or was skipped */}
       {(status === 'error' || status === 'skipped') && (

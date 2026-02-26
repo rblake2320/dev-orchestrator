@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { NODE_TEMPLATES, MODEL_OPTIONS } from '../lib/models';
+import { NODE_TEMPLATES, MODEL_OPTIONS, NODE_TEMPLATE_CATEGORIES } from '../lib/models';
 import { executePipeline, retrySingleNode, executePartialPipeline } from '../lib/pipeline';
 import { loadPipelineState, savePipelineState, clearPipelineState, getAgentConfigs } from '../lib/settings';
 import { optimizePipeline, autoFixPipeline, getOptimizerModel } from '../lib/optimize';
@@ -22,19 +22,39 @@ function makeNodeId(templateId) {
 
 // ─── File map: templateId → download filename ─────────────────────────────────
 const FILE_MAP = {
-  requirements:  { name: 'requirements.md',      ext: 'md'   },
-  db_schema:     { name: 'schema.sql',            ext: 'sql'  },
-  api_contract:  { name: 'openapi.yaml',          ext: 'yaml' },
-  frontend:      { name: 'frontend.tsx',          ext: 'tsx'  },
-  backend:       { name: 'server.ts',             ext: 'ts'   },
-  wireframes:    { name: 'wireframes.md',         ext: 'md'   },
-  auth:          { name: 'auth.ts',               ext: 'ts'   },
-  payments:      { name: 'payments.ts',           ext: 'ts'   },
-  tests:         { name: 'tests.spec.ts',         ext: 'ts'   },
-  deploy:        { name: 'docker-compose.yml',    ext: 'yml'  },
-  web_research:  { name: 'research-notes.md',     ext: 'md'   },
-  peer_review:   { name: 'peer-review.md',        ext: 'md'   },
-  fact_check:    { name: 'fact-check.md',         ext: 'md'   },
+  // Code & Architecture
+  requirements:    { name: 'requirements.md',       ext: 'md'   },
+  db_schema:       { name: 'schema.sql',             ext: 'sql'  },
+  api_contract:    { name: 'openapi.yaml',           ext: 'yaml' },
+  frontend:        { name: 'frontend.tsx',           ext: 'tsx'  },
+  backend:         { name: 'server.ts',              ext: 'ts'   },
+  wireframes:      { name: 'wireframes.md',          ext: 'md'   },
+  auth:            { name: 'auth.ts',                ext: 'ts'   },
+  payments:        { name: 'payments.ts',            ext: 'ts'   },
+  tests:           { name: 'tests.spec.ts',          ext: 'ts'   },
+  deploy:          { name: 'docker-compose.yml',     ext: 'yml'  },
+  web_research:    { name: 'research-notes.md',      ext: 'md'   },
+  peer_review:     { name: 'peer-review.md',         ext: 'md'   },
+  fact_check:      { name: 'fact-check.md',          ext: 'md'   },
+  // Content & Marketing
+  blog_post:       { name: 'blog-post.md',           ext: 'md'   },
+  social_media:    { name: 'social-posts.md',        ext: 'md'   },
+  email_campaign:  { name: 'email-campaign.md',      ext: 'md'   },
+  marketing_copy:  { name: 'marketing-copy.md',      ext: 'md'   },
+  seo:             { name: 'seo-strategy.md',        ext: 'md'   },
+  brand_guide:     { name: 'brand-guide.md',         ext: 'md'   },
+  // Media & Creative
+  image_prompt:    { name: 'image-prompts.md',       ext: 'md'   },
+  video_script:    { name: 'video-script.md',        ext: 'md'   },
+  audio_script:    { name: 'audio-script.md',        ext: 'md'   },
+  storyboard:      { name: 'storyboard.md',          ext: 'md'   },
+  music_prompt:    { name: 'music-prompts.md',       ext: 'md'   },
+  // Data & AI
+  data_analysis:   { name: 'data-analysis.md',       ext: 'md'   },
+  ml_pipeline:     { name: 'ml-pipeline.md',         ext: 'md'   },
+  chatbot_design:  { name: 'chatbot-design.md',      ext: 'md'   },
+  // Custom
+  custom:          { name: 'custom-step.md',         ext: 'md'   },
 };
 
 // ─── Markdown output renderer ─────────────────────────────────────────────────
@@ -319,7 +339,12 @@ export default function DevOrchestrator() {
 
   // ── Full pipeline run ─────────────────────────────────────────────────────
   const runPipeline = useCallback(async () => {
-    if (nodes.length === 0 || !projectDesc.trim()) return;
+    if (nodes.length === 0) return;
+    if (!projectDesc.trim()) {
+      setExecutionLog([{ time: new Date().toLocaleTimeString(), msg: '✗ Add a project description before running — every node uses it to generate relevant output.' }]);
+      setActiveTab('canvas');
+      return;
+    }
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -902,21 +927,36 @@ export default function DevOrchestrator() {
                 />
               )}
 
-              {/* Node Picker Drawer */}
+              {/* Node Picker Drawer — categorized */}
               {showNodePicker && (
-                <div className="px-4 py-2.5 bg-[#0d1117] border-b border-gray-800 flex gap-2 flex-wrap items-center animate-slide-in">
-                  <span className="text-[11px] text-gray-600 font-semibold uppercase tracking-wider mr-1">Add:</span>
-                  {NODE_TEMPLATES.map((t) => (
-                    <button
-                      key={t.id}
-                      onClick={() => addNode(t.id)}
-                      className="text-[11px] px-3 py-1 rounded-lg border flex items-center gap-1 transition-all hover:brightness-125"
-                      style={{ background: `${t.color}11`, borderColor: `${t.color}33`, color: t.color }}
-                    >
-                      {t.icon} {t.label}
-                      {t.webSearch && <span className="text-[9px] opacity-60">🌐</span>}
-                    </button>
-                  ))}
+                <div className="bg-[#0a0a0f] border-b border-gray-800 animate-slide-in">
+                  {NODE_TEMPLATE_CATEGORIES.map((cat) => {
+                    const catNodes = NODE_TEMPLATES.filter((t) =>
+                      (t.category || 'code') === cat.id
+                    );
+                    if (catNodes.length === 0) return null;
+                    return (
+                      <div key={cat.id} className="flex items-center gap-2 flex-wrap px-4 py-2 border-b border-gray-900/60 last:border-b-0">
+                        <span className="text-[10px] text-gray-600 font-semibold uppercase tracking-wider w-32 flex-shrink-0">
+                          {cat.label}
+                        </span>
+                        <div className="flex gap-1.5 flex-wrap">
+                          {catNodes.map((t) => (
+                            <button
+                              key={t.id}
+                              onClick={() => addNode(t.id)}
+                              title={t.desc}
+                              className="text-[11px] px-2.5 py-1 rounded-lg border flex items-center gap-1 transition-all hover:brightness-125 active:scale-95"
+                              style={{ background: `${t.color}11`, borderColor: `${t.color}33`, color: t.color }}
+                            >
+                              {t.icon} {t.label}
+                              {t.webSearch && <span className="text-[9px] opacity-50">🌐</span>}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
@@ -952,6 +992,7 @@ export default function DevOrchestrator() {
                         onUpdatePrompt={updateNodePrompt}
                         onUpdateLabel={updateNodeLabel}
                         onRetryNode={retryNode}
+                        onClose={() => setSelectedNode(null)}
                         isRunning={isRunning}
                       />
                     )}
