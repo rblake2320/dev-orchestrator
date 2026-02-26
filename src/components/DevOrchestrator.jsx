@@ -6,11 +6,13 @@ import { executePipeline, retrySingleNode, executePartialPipeline } from '../lib
 import { loadPipelineState, savePipelineState, clearPipelineState, getAgentConfigs } from '../lib/settings';
 import { optimizePipeline, autoFixPipeline, getOptimizerModel } from '../lib/optimize';
 import { testAgent } from '../lib/agentCall';
+import { saveRunRecord, buildRunRecord } from '../lib/runHistory';
 import Canvas from './Canvas';
 import NodeInspector from './NodeInspector';
 import TemplateSelector from './TemplateSelector';
 import Settings from './Settings';
 import Help from './Help';
+import BugReport from './BugReport';
 
 // ─── Unique node ID generator ─────────────────────────────────────────────────
 let _nodeSeq = 0;
@@ -189,7 +191,9 @@ export default function DevOrchestrator() {
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState('');
   const [rawMode, setRawMode] = useState({}); // nodeId → bool: show raw vs markdown
+  const [showBugReport, setShowBugReport] = useState(false);
   const abortRef = useRef(null);
+  const runStartRef = useRef(null); // timestamp when current run started
 
   // ── Optimizer / Auto-fix state ────────────────────────────────────────────
   const [optimizing, setOptimizing] = useState(false);
@@ -325,8 +329,11 @@ export default function DevOrchestrator() {
     setModelsUsed({});
     setStreamingChunks({});
     setRunPhase('Starting pipeline…');
+    runStartRef.current = Date.now();
 
     const cbs = makeCallbacks();
+    let finalModelsUsed = {};
+    let finalStatuses   = {};
 
     try {
       const result = await executePipeline({
@@ -335,7 +342,8 @@ export default function DevOrchestrator() {
         signal: controller.signal,
         ...cbs,
       });
-      setModelsUsed(result.modelsUsed || {});
+      finalModelsUsed = result.modelsUsed || {};
+      setModelsUsed(finalModelsUsed);
       setRunPhase('Pipeline complete');
     } catch (err) {
       if (err.name !== 'AbortError') {
@@ -345,6 +353,27 @@ export default function DevOrchestrator() {
     } finally {
       setIsRunning(false);
       setStreamingChunks({});
+
+      // Save run record for analytics + bug reports
+      setNodeStatuses((latestStatuses) => {
+        const durationMs = Date.now() - (runStartRef.current || Date.now());
+        setExecutionLog((latestLog) => {
+          try {
+            saveRunRecord(buildRunRecord({
+              projectDesc,
+              nodes,
+              edges,
+              execMode,
+              nodeStatuses: latestStatuses,
+              modelsUsed: finalModelsUsed,
+              executionLog: latestLog,
+              durationMs,
+            }));
+          } catch { /* never block UI */ }
+          return latestLog;
+        });
+        return latestStatuses;
+      });
     }
   }, [nodes, edges, projectDesc, execMode, makeCallbacks]);
 
@@ -685,6 +714,11 @@ export default function DevOrchestrator() {
             <button onClick={resetAll} className="text-xs px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors">↻ Reset</button>
           )}
           <button
+            onClick={() => setShowBugReport(true)}
+            className="text-xs px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors"
+            title="Report a bug or give feedback"
+          >🐛 Report Bug</button>
+          <button
             onClick={() => setShowSettings(true)}
             className="text-xs px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors"
             title="API Keys & Provider Settings"
@@ -693,6 +727,18 @@ export default function DevOrchestrator() {
       </header>
 
       {showSettings && <Settings onClose={() => { setShowSettings(false); setAgents(getAgentConfigs()); }} />}
+      {showBugReport && (
+        <BugReport
+          nodes={nodes}
+          edges={edges}
+          projectDesc={projectDesc}
+          executionLog={executionLog}
+          nodeStatuses={nodeStatuses}
+          outputs={outputs}
+          modelsUsed={modelsUsed}
+          onClose={() => setShowBugReport(false)}
+        />
+      )}
 
       <div className="flex" style={{ height: 'calc(100vh - 57px)' }}>
         <div className="flex-1 flex flex-col overflow-hidden">
