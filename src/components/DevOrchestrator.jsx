@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { NODE_TEMPLATES, MODEL_OPTIONS } from '../lib/models';
 import { executePipeline, retrySingleNode } from '../lib/pipeline';
 import { loadPipelineState, savePipelineState, clearPipelineState } from '../lib/settings';
+import { optimizePipeline, autoFixPipeline, getOptimizerModel } from '../lib/optimize';
 import Canvas from './Canvas';
 import NodeInspector from './NodeInspector';
 import TemplateSelector from './TemplateSelector';
@@ -69,6 +70,85 @@ function CopyButton({ text, className = '' }) {
   );
 }
 
+// ─── Optimizer / Auto-fix result banner ───────────────────────────────────────
+function OptimizeBanner({ banner, nodes, onDismiss }) {
+  const [expanded, setExpanded] = useState(false);
+  const { type, result } = banner;
+  const isOptimize = type === 'optimize';
+
+  const summary = isOptimize ? result?.strategy : result?.summary;
+  const changes = isOptimize ? result?.nodes : result?.fixes;
+  const changeEntries = changes ? Object.entries(changes) : [];
+
+  // Count actual changes
+  const modelChanges = changeEntries.filter(([id, v]) => {
+    if (isOptimize) {
+      const node = nodes.find((n) => n.id === id);
+      return v?.model && v.model !== node?.model;
+    }
+    return v?.model;
+  });
+
+  const accentCls = isOptimize
+    ? { border: 'border-violet-800/50', bg: 'bg-violet-950/25', text: 'text-violet-300', badge: 'bg-violet-900/40 text-violet-300 border-violet-800/40' }
+    : { border: 'border-amber-800/50', bg: 'bg-amber-950/25', text: 'text-amber-300', badge: 'bg-amber-900/40 text-amber-300 border-amber-800/40' };
+
+  return (
+    <div className={`border-b ${accentCls.border} ${accentCls.bg} px-4 py-2.5`}>
+      <div className="flex items-start gap-3">
+        <span className="text-lg mt-0.5 flex-shrink-0">{isOptimize ? '🧠' : '🔧'}</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`text-xs font-bold ${accentCls.text}`}>{isOptimize ? 'Auto-Configure' : 'Auto-Fix'} Complete</span>
+            {modelChanges.length > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold ${accentCls.badge}`}>
+                {modelChanges.length} model{modelChanges.length !== 1 ? 's' : ''} updated
+              </span>
+            )}
+            {!isOptimize && changeEntries.filter(([, v]) => v?.promptAddition).length > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold ${accentCls.badge}`}>
+                {changeEntries.filter(([, v]) => v?.promptAddition).length} prompt{changeEntries.filter(([, v]) => v?.promptAddition).length !== 1 ? 's' : ''} enhanced
+              </span>
+            )}
+          </div>
+          {summary && <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{summary}</p>}
+
+          {/* Per-node details */}
+          {changeEntries.length > 0 && (
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className={`mt-1 text-[10px] ${accentCls.text} hover:opacity-80 transition-opacity`}
+            >
+              {expanded ? '▲ Hide details' : `▼ Show ${changeEntries.length} node details`}
+            </button>
+          )}
+          {expanded && (
+            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              {changeEntries.map(([nodeId, rec]) => {
+                const node = nodes.find((n) => n.id === nodeId);
+                const tmpl = NODE_TEMPLATES.find((t) => t.id === (node?.templateId || nodeId));
+                return (
+                  <div key={nodeId} className="bg-gray-900/60 border border-gray-800/60 rounded-lg px-3 py-2 text-[10px]">
+                    <div className="font-semibold text-gray-300">{tmpl?.icon} {node?.customLabel || tmpl?.label || nodeId}</div>
+                    {rec.model && <div className="text-gray-500 mt-0.5">Model → <span className="text-gray-300">{MODEL_OPTIONS.find((m) => m.id === rec.model)?.label || rec.model}</span></div>}
+                    {rec.promptAddition && <div className="text-gray-500 mt-0.5">Prompt + <span className="text-gray-400 italic">"{rec.promptAddition.slice(0, 80)}{rec.promptAddition.length > 80 ? '…' : ''}"</span></div>}
+                    {rec.reason && <div className="text-gray-600 mt-0.5 italic">{rec.reason}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <button
+          onClick={onDismiss}
+          className="flex-shrink-0 text-gray-600 hover:text-gray-400 transition-colors text-sm mt-0.5"
+          title="Dismiss"
+        >✕</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function DevOrchestrator() {
   // ── State ─────────────────────────────────────────────────────────────────
@@ -92,6 +172,12 @@ export default function DevOrchestrator() {
   const [descDraft, setDescDraft] = useState('');
   const [rawMode, setRawMode] = useState({}); // nodeId → bool: show raw vs markdown
   const abortRef = useRef(null);
+
+  // ── Optimizer / Auto-fix state ────────────────────────────────────────────
+  const [optimizing, setOptimizing] = useState(false);
+  const [optimizePhase, setOptimizePhase] = useState('');
+  const [optimizeBanner, setOptimizeBanner] = useState(null); // { type: 'optimize'|'autofix', result }
+  const optimizeAbortRef = useRef(null);
 
   // ── Persist pipeline state to localStorage ────────────────────────────────
   useEffect(() => {
@@ -309,10 +395,98 @@ export default function DevOrchestrator() {
     URL.revokeObjectURL(url);
   }, [outputs, nodes, projectDesc, modelsUsed]);
 
+  // ── LLM Optimizer — auto-picks best models before running ─────────────────
+  const optimizeHandler = useCallback(async () => {
+    if (optimizing || isRunning || nodes.length === 0) return;
+    const controller = new AbortController();
+    optimizeAbortRef.current = controller;
+    setOptimizing(true);
+    setOptimizeBanner(null);
+    setOptimizePhase('🧠 Analyzing pipeline…');
+
+    try {
+      const result = await optimizePipeline({
+        nodes, edges, projectDesc,
+        signal: controller.signal,
+        onProgress: setOptimizePhase,
+      });
+
+      // Apply model assignments to nodes
+      if (result?.nodes) {
+        setNodes((prev) => prev.map((n) => {
+          const rec = result.nodes[n.id];
+          if (!rec) return n;
+          return { ...n, model: rec.model || null };
+        }));
+      }
+
+      setOptimizeBanner({ type: 'optimize', result });
+      setOptimizePhase('');
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        setOptimizePhase(`✗ Optimizer failed: ${err.message}`);
+        setTimeout(() => setOptimizePhase(''), 4000);
+      }
+    } finally {
+      setOptimizing(false);
+    }
+  }, [nodes, edges, projectDesc, optimizing, isRunning]);
+
+  // ── LLM Auto-Fix — diagnoses errors and applies targeted fixes ─────────────
+  const autoFixHandler = useCallback(async () => {
+    if (optimizing || isRunning || nodes.length === 0) return;
+    const controller = new AbortController();
+    optimizeAbortRef.current = controller;
+    setOptimizing(true);
+    setOptimizeBanner(null);
+    setOptimizePhase('🔧 Diagnosing failures…');
+
+    try {
+      const result = await autoFixPipeline({
+        nodes, edges, projectDesc,
+        nodeStatuses, outputs, executionLog,
+        signal: controller.signal,
+        onProgress: setOptimizePhase,
+      });
+
+      // Apply model swaps + prompt additions for each fixed node
+      if (result?.fixes) {
+        setNodes((prev) => prev.map((n) => {
+          const fix = result.fixes[n.id];
+          if (!fix) return n;
+          const model = ('model' in fix) ? (fix.model || null) : n.model;
+          const customPrompt = fix.promptAddition
+            ? (n.customPrompt ? `${n.customPrompt}\n\n${fix.promptAddition}` : fix.promptAddition)
+            : n.customPrompt;
+          return { ...n, model, customPrompt };
+        }));
+
+        // Clear error/skipped status on fixed nodes so they can re-run
+        const fixedIds = Object.keys(result.fixes);
+        setNodeStatuses((prev) => {
+          const next = { ...prev };
+          fixedIds.forEach((id) => { if (next[id] === 'error' || next[id] === 'skipped') delete next[id]; });
+          return next;
+        });
+      }
+
+      setOptimizeBanner({ type: 'autofix', result });
+      setOptimizePhase('');
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        setOptimizePhase(`✗ Auto-fix failed: ${err.message}`);
+        setTimeout(() => setOptimizePhase(''), 4000);
+      }
+    } finally {
+      setOptimizing(false);
+    }
+  }, [nodes, edges, projectDesc, nodeStatuses, outputs, executionLog, optimizing, isRunning]);
+
   // ── Derived ───────────────────────────────────────────────────────────────
   const allTemplateIds = nodes.map((n) => n.templateId || n.id);
   const hasOutputs = Object.keys(outputs).length > 0;
   const hasLog     = executionLog.length > 0;
+  const hasErrors  = nodes.some((n) => nodeStatuses[n.id] === 'error' || nodeStatuses[n.id] === 'skipped');
 
   const logColor = (msg) =>
     msg.startsWith('✓')  ? 'text-emerald-400' :
@@ -423,13 +597,47 @@ export default function DevOrchestrator() {
                     />
                   )}
 
+                  {/* LLM Smart Buttons */}
+                  {!isRunning && !optimizing && nodes.length > 0 && (
+                    <>
+                      <button
+                        onClick={optimizeHandler}
+                        title="Let an LLM pick the best model for every node"
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-violet-700/50 bg-violet-950/30 text-violet-300 hover:bg-violet-950/60 transition-colors flex items-center gap-1.5"
+                      >
+                        🧠 Auto-Configure
+                      </button>
+                      {hasErrors && (
+                        <button
+                          onClick={autoFixHandler}
+                          title="Let an LLM diagnose failures and apply fixes"
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-amber-700/50 bg-amber-950/30 text-amber-300 hover:bg-amber-950/60 transition-colors flex items-center gap-1.5"
+                        >
+                          🔧 Auto-Fix
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {optimizing && (
+                    <button
+                      onClick={() => optimizeAbortRef.current?.abort()}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-violet-700/50 bg-violet-950/40 text-violet-300 hover:bg-violet-950/70 transition-colors flex items-center gap-1.5"
+                    >
+                      <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Cancel
+                    </button>
+                  )}
+
                   {/* Run / Stop */}
                   {isRunning ? (
                     <button onClick={stopPipeline} className="px-4 py-1.5 rounded-lg text-xs font-bold bg-red-600 hover:bg-red-500 text-white transition-colors flex items-center gap-1.5">■ Stop</button>
                   ) : (
                     <button
                       onClick={runPipeline}
-                      disabled={nodes.length === 0 || !projectDesc.trim()}
+                      disabled={nodes.length === 0 || !projectDesc.trim() || optimizing}
                       title="Ctrl+Enter"
                       className="px-5 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
                     >
@@ -439,7 +647,7 @@ export default function DevOrchestrator() {
                 </div>
               </div>
 
-              {/* Status bar */}
+              {/* Pipeline status bar */}
               {isRunning && (
                 <div className={`px-4 py-1.5 border-b flex items-center gap-2 transition-colors ${runPhase.startsWith('🔄') ? 'bg-amber-950/30 border-amber-900/30' : 'bg-indigo-950/30 border-indigo-900/30'}`}>
                   <svg className={`animate-spin h-3 w-3 ${runPhase.startsWith('🔄') ? 'text-amber-400' : 'text-indigo-400'}`} viewBox="0 0 24 24">
@@ -448,6 +656,28 @@ export default function DevOrchestrator() {
                   </svg>
                   <span className={`text-xs font-medium ${runPhase.startsWith('🔄') ? 'text-amber-300' : 'text-indigo-300'}`}>{runPhase}</span>
                 </div>
+              )}
+
+              {/* Optimizer status bar */}
+              {optimizePhase && (
+                <div className={`px-4 py-1.5 border-b flex items-center gap-2 transition-colors ${optimizePhase.startsWith('✗') ? 'bg-red-950/30 border-red-900/30' : 'bg-violet-950/30 border-violet-900/30'}`}>
+                  {!optimizePhase.startsWith('✗') && (
+                    <svg className="animate-spin h-3 w-3 text-violet-400" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  )}
+                  <span className={`text-xs font-medium ${optimizePhase.startsWith('✗') ? 'text-red-300' : 'text-violet-300'}`}>{optimizePhase}</span>
+                </div>
+              )}
+
+              {/* Optimizer / Auto-Fix result banner */}
+              {optimizeBanner && (
+                <OptimizeBanner
+                  banner={optimizeBanner}
+                  nodes={nodes}
+                  onDismiss={() => setOptimizeBanner(null)}
+                />
               )}
 
               {/* Node Picker Drawer */}
