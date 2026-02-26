@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { NODE_TEMPLATES, MODEL_OPTIONS, NODE_TEMPLATE_CATEGORIES } from '../lib/models';
 import { executePipeline, retrySingleNode, executePartialPipeline } from '../lib/pipeline';
-import { loadPipelineState, savePipelineState, clearPipelineState, getAgentConfigs } from '../lib/settings';
+import { loadPipelineState, savePipelineState, clearPipelineState, getAgentConfigs, getStoredOllamaModels } from '../lib/settings';
 import { optimizePipeline, autoFixPipeline, getOptimizerModel } from '../lib/optimize';
 import { testAgent } from '../lib/agentCall';
 import { saveRunRecord, buildRunRecord } from '../lib/runHistory';
@@ -225,6 +225,7 @@ export default function DevOrchestrator() {
   // ── Agent state ───────────────────────────────────────────────────────────
   const [agents, setAgents] = useState(() => getAgentConfigs());
   const [agentStatuses, setAgentStatuses] = useState({}); // agentId → 'online'|'offline'
+  const [dynamicOllamaModels, setDynamicOllamaModels] = useState(() => getStoredOllamaModels());
 
   // ── Persist pipeline state to localStorage ────────────────────────────────
   useEffect(() => {
@@ -254,7 +255,27 @@ export default function DevOrchestrator() {
     });
   }, []);
 
-  // ── Keyboard shortcut: Ctrl/Cmd + Enter to run ────────────────────────────
+  // ── Undo stack for node/edge operations ───────────────────────────────────
+  const undoStack = useRef([]); // [{nodes, edges}]
+  const pushUndo = useCallback(() => {
+    setNodes((n) => {
+      setEdges((e) => {
+        undoStack.current = undoStack.current.slice(-29); // max 30 states
+        undoStack.current.push({ nodes: n, edges: e });
+        return e;
+      });
+      return n;
+    });
+  }, []);
+
+  const undo = useCallback(() => {
+    if (undoStack.current.length === 0) return;
+    const prev = undoStack.current.pop();
+    setNodes(prev.nodes);
+    setEdges(prev.edges);
+  }, []);
+
+  // ── Keyboard shortcut: Ctrl/Cmd + Enter to run, Ctrl+Z to undo ─────────────
   useEffect(() => {
     const handler = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -263,10 +284,14 @@ export default function DevOrchestrator() {
           runPipeline();
         }
       }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [isRunning, nodes, projectDesc]); // eslint-disable-line
+  }, [isRunning, nodes, projectDesc, undo]); // eslint-disable-line
 
   const selectedNodeData = useMemo(() => nodes.find((n) => n.id === selectedNode), [nodes, selectedNode]);
 
@@ -293,16 +318,18 @@ export default function DevOrchestrator() {
 
   // ── Node CRUD ─────────────────────────────────────────────────────────────
   const addNode = useCallback((templateId) => {
+    pushUndo();
     const id = makeNodeId(templateId);
     setNodes((prev) => [...prev, { id, templateId, model: null, customPrompt: '', customLabel: null, agentId: null }]);
     setShowNodePicker(false);
-  }, []);
+  }, [pushUndo]);
 
   const removeNode = useCallback((nodeId) => {
+    pushUndo();
     setNodes((prev) => prev.filter((n) => n.id !== nodeId));
     setEdges((prev) => prev.filter(([f, t]) => f !== nodeId && t !== nodeId));
     if (selectedNode === nodeId) setSelectedNode(null);
-  }, [selectedNode]);
+  }, [pushUndo, selectedNode]);
 
   const updateNodeModel  = useCallback((nodeId, modelId) => setNodes((prev) => prev.map((n) => n.id === nodeId ? { ...n, model: modelId } : n)), []);
   const updateNodePrompt = useCallback((nodeId, p)       => setNodes((prev) => prev.map((n) => n.id === nodeId ? { ...n, customPrompt: p } : n)), []);
@@ -310,11 +337,12 @@ export default function DevOrchestrator() {
   const updateNodeAgent  = useCallback((nodeId, agentId) => setNodes((prev) => prev.map((n) => n.id === nodeId ? { ...n, agentId: agentId || null } : n)), []);
 
   const toggleEdge = useCallback((fromId, toId) => {
+    pushUndo();
     setEdges((prev) => {
       const exists = prev.some(([f, t]) => f === fromId && t === toId);
       return exists ? prev.filter(([f, t]) => !(f === fromId && t === toId)) : [...prev, [fromId, toId]];
     });
-  }, []);
+  }, [pushUndo]);
 
   // ── Shared callbacks for pipeline execution ───────────────────────────────
   const makeCallbacks = useCallback((isRetry = false) => ({
@@ -757,7 +785,7 @@ export default function DevOrchestrator() {
         </div>
       </header>
 
-      {showSettings && <Settings onClose={() => { setShowSettings(false); setAgents(getAgentConfigs()); }} />}
+      {showSettings && <Settings onClose={() => { setShowSettings(false); setAgents(getAgentConfigs()); setDynamicOllamaModels(getStoredOllamaModels()); }} />}
       {showHelp && <Help onClose={() => setShowHelp(false)} />}
       {showBugReport && (
         <BugReport
@@ -799,7 +827,7 @@ export default function DevOrchestrator() {
                   ].map((tab) => (
                     <button
                       key={tab.id}
-                      onClick={() => tab.ready && setActiveTab(tab.id)}
+                      onClick={() => { if (tab.ready) { setActiveTab(tab.id); if (tab.id !== 'canvas') setSelectedNode(null); } }}
                       disabled={!tab.ready}
                       className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeTab === tab.id ? 'bg-indigo-600 text-white' : tab.ready ? 'text-gray-400 hover:text-gray-200' : 'text-gray-700 cursor-not-allowed'}`}
                     >
@@ -985,6 +1013,7 @@ export default function DevOrchestrator() {
                         modelsUsed={modelsUsed}
                         agents={agents}
                         agentStatuses={agentStatuses}
+                        dynamicOllamaModels={dynamicOllamaModels}
                         onUpdateModel={updateNodeModel}
                         onUpdateAgent={updateNodeAgent}
                         onToggleEdge={toggleEdge}

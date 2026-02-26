@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { PROVIDER_CONFIGS, SEARCH_PROVIDER_CONFIGS, getSettings, saveSettings, getAgentConfigs, saveAgentConfigs } from '../lib/settings';
+import { PROVIDER_CONFIGS, SEARCH_PROVIDER_CONFIGS, getSettings, saveSettings, getAgentConfigs, saveAgentConfigs, saveStoredOllamaModels } from '../lib/settings';
 import { AGENT_PROTOCOLS, AGENT_CAPABILITIES, createAgentConfig } from '../lib/agents';
 import { testAgent } from '../lib/agentCall';
 import { discoverOllamaModels } from '../lib/api';
@@ -231,6 +231,7 @@ export default function Settings({ onClose }) {
     setOllamaLoading(true);
     const models = await discoverOllamaModels();
     setOllamaModels(models);
+    if (models.length > 0) saveStoredOllamaModels(models);
     setOllamaLoading(false);
   }, []);
 

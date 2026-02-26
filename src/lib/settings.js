@@ -164,3 +164,15 @@ export function saveAgentConfigs(agents) {
 export function getAgentById(id) {
   return getAgentConfigs().find((a) => a.id === id) || null;
 }
+
+// ─── Discovered Ollama Models ─────────────────────────────────────────────────
+const OLLAMA_MODELS_KEY = 'devo_ollama_models';
+
+export function getStoredOllamaModels() {
+  try { return JSON.parse(localStorage.getItem(OLLAMA_MODELS_KEY) || '[]'); }
+  catch { return []; }
+}
+
+export function saveStoredOllamaModels(models) {
+  localStorage.setItem(OLLAMA_MODELS_KEY, JSON.stringify(models));
+}

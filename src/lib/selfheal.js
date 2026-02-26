@@ -1,5 +1,5 @@
 import { MODEL_OPTIONS } from './models.js';
-import { getSettings } from './settings.js';
+import { getSettings, getStoredOllamaModels } from './settings.js';
 
 /**
  * Classify an error message so the healing strategy knows what to do.
@@ -88,7 +88,16 @@ const FALLBACK_PRIORITY = [
  */
 export function getFallbackChain(failedModelId, errorType) {
   const settings = getSettings();
-  const failedModel = MODEL_OPTIONS.find((m) => m.id === failedModelId);
+
+  // Merge static non-Ollama models with dynamically discovered Ollama models
+  const storedOllama = getStoredOllamaModels();
+  const effectiveModels = [
+    ...MODEL_OPTIONS.filter((m) => m.provider !== 'ollama'),
+    ...(storedOllama.length > 0 ? storedOllama : MODEL_OPTIONS.filter((m) => m.provider === 'ollama')),
+  ];
+
+  const failedModel = effectiveModels.find((m) => m.id === failedModelId)
+    || MODEL_OPTIONS.find((m) => m.id === failedModelId);
   const failedProvider = failedModel?.provider;
 
   // Only try providers that actually have keys configured
@@ -98,10 +107,18 @@ export function getFallbackChain(failedModelId, errorType) {
     return key.trim().length > 0;
   }
 
-  return FALLBACK_PRIORITY
+  // Static priority list + any dynamic Ollama models appended
+  const dynamicOllamaIds = storedOllama.map((m) => m.id);
+  const extendedPriority = [
+    ...FALLBACK_PRIORITY.filter((id) => !id.startsWith('ollama-')),
+    ...dynamicOllamaIds,
+    ...FALLBACK_PRIORITY.filter((id) => id.startsWith('ollama-')),
+  ];
+
+  return extendedPriority
     .filter((id) => {
       if (id === failedModelId) return false;
-      const m = MODEL_OPTIONS.find((opt) => opt.id === id);
+      const m = effectiveModels.find((opt) => opt.id === id);
       if (!m) return false;
       // Skip any model whose provider has no configured API key
       if (!isConfigured(m.provider)) return false;
@@ -109,7 +126,7 @@ export function getFallbackChain(failedModelId, errorType) {
       if ((errorType === 'auth' || errorType === 'rate_limit') && m.provider === failedProvider) return false;
       return true;
     })
-    .map((id) => MODEL_OPTIONS.find((m) => m.id === id))
+    .map((id) => effectiveModels.find((m) => m.id === id))
     .filter(Boolean);
 }
 

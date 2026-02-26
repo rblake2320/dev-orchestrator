@@ -11,6 +11,7 @@ export default function NodeInspector({
   modelsUsed,
   agents,
   agentStatuses,
+  dynamicOllamaModels,
   onUpdateModel,
   onUpdateAgent,
   onToggleEdge,
@@ -28,11 +29,19 @@ export default function NodeInspector({
   const [labelDraft, setLabelDraft] = useState(node.customLabel || template.label);
   const driverMode = node.agentId ? 'agent' : 'model';
 
+  // Merge static non-Ollama models with dynamically discovered Ollama models
+  const effectiveModels = [
+    ...MODEL_OPTIONS.filter((m) => m.provider !== 'ollama'),
+    ...(dynamicOllamaModels?.length > 0
+      ? dynamicOllamaModels
+      : MODEL_OPTIONS.filter((m) => m.provider === 'ollama')),
+  ];
+
   const upstreamIds = edges.filter(([, to]) => to === node.id).map(([from]) => from);
   const status = nodeStatuses?.[node.id] || 'idle';
   const modelUsedId = modelsUsed?.[node.id];
-  const modelUsed = modelUsedId ? MODEL_OPTIONS.find((m) => m.id === modelUsedId) : null;
-  const assignedModel = node.model ? MODEL_OPTIONS.find((m) => m.id === node.model) : null;
+  const modelUsed = modelUsedId ? (effectiveModels.find((m) => m.id === modelUsedId) || { label: modelUsedId }) : null;
+  const assignedModel = node.model ? effectiveModels.find((m) => m.id === node.model) : null;
 
   const statusBadge = {
     done:    { label: '✓ Done',    cls: 'text-emerald-400 bg-emerald-950/40 border-emerald-900/40' },
@@ -191,7 +200,7 @@ export default function NodeInspector({
               <span className="font-medium">Auto (recommended)</span>
               <span className="ml-auto opacity-60 text-[10px]">{template.modelTier}</span>
             </button>
-            {MODEL_OPTIONS.map((m) => {
+            {effectiveModels.map((m) => {
               const active = node.model === m.id;
               return (
                 <button
