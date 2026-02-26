@@ -294,6 +294,104 @@ export async function executePipeline({
 }
 
 /**
+ * Partial re-run: only execute nodes that previously failed/were skipped.
+ * Seeds the internal outputs map from existingOutputs so successful nodes
+ * are never re-run but their outputs remain available as upstream context.
+ *
+ * Returns { modelsUsed }
+ */
+export async function executePartialPipeline({
+  nodes,
+  edges,
+  projectDesc,
+  mode = 'dag',
+  existingOutputs,   // outputs from prior successful runs (will not be re-executed)
+  signal,
+  onStatusChange,
+  onOutput,
+  onLog,
+  onChunk,
+}) {
+  const outputs = { ...existingOutputs };
+  const modelsUsed = {};
+  const failedNodes = new Set();
+
+  const nodeIds = nodes.map((n) => n.id);
+  let executionLevels;
+  if (mode === 'parallel') {
+    executionLevels = [nodeIds];
+  } else if (mode === 'sequential') {
+    executionLevels = topologicalLevels(nodeIds, edges).flat().map((id) => [id]);
+  } else {
+    executionLevels = topologicalLevels(nodeIds, edges);
+  }
+
+  for (const level of executionLevels) {
+    if (signal?.aborted) throw new DOMException('Pipeline aborted', 'AbortError');
+
+    const skipped = [];
+    const alreadyDone = [];
+    const runnable = [];
+
+    for (const nodeId of level) {
+      const upstreamDeps = edges.filter(([, to]) => to === nodeId).map(([from]) => from);
+
+      if (mode !== 'parallel' && upstreamDeps.some((id) => failedNodes.has(id))) {
+        skipped.push(nodeId);
+        continue;
+      }
+
+      // Node already succeeded — keep its output, mark done, don't re-run
+      if (outputs[nodeId] !== undefined) {
+        alreadyDone.push(nodeId);
+        continue;
+      }
+
+      runnable.push(nodeId);
+    }
+
+    for (const nodeId of skipped) {
+      failedNodes.add(nodeId);
+      const node = nodes.find((n) => n.id === nodeId);
+      const template = resolveTemplate(node || { id: nodeId });
+      onStatusChange(nodeId, 'skipped');
+      onLog(`⊘ ${template?.label || nodeId} skipped (upstream failed)`);
+    }
+
+    for (const nodeId of alreadyDone) {
+      onStatusChange(nodeId, 'done');
+    }
+
+    if (runnable.length === 0) continue;
+
+    const names = runnable.map((id) => {
+      const node = nodes.find((n) => n.id === id);
+      return resolveTemplate(node || { id })?.label || id;
+    }).join(', ');
+    onLog(`▶ Re-running: ${names}${runnable.length > 1 ? ' (parallel)' : ''}`);
+
+    runnable.forEach((id) => onStatusChange(id, 'running'));
+
+    const promises = runnable.map(async (nodeId) => {
+      const node = nodes.find((n) => n.id === nodeId);
+      if (!node) return;
+
+      const result = await runNode({
+        node, nodes, edges, projectDesc, outputs, signal,
+        onStatusChange, onOutput, onLog, onChunk,
+      });
+
+      if (result.failed) failedNodes.add(nodeId);
+      if (result.modelUsed) modelsUsed[nodeId] = result.modelUsed;
+    });
+
+    await Promise.all(promises);
+  }
+
+  return { modelsUsed };
+}
+
+/**
  * Retry (regenerate) a single node with its current upstream context.
  * Supports self-heal and streaming.
  */

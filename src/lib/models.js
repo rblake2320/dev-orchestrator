@@ -22,14 +22,18 @@ Respond with well-structured markdown.`,
     color: '#8b5cf6',
     modelTier: 'mid',
     desc: 'Tables, relationships, migrations',
-    systemPrompt: `You are a Database Architect. Design a complete database schema:
-- Table definitions with columns, types, constraints
-- Relationships (FK, junction tables)
-- Indexes for query performance
-- Migration SQL (PostgreSQL)
-- Seed data examples
+    systemPrompt: `You are a Database Architect. Design a complete production database schema.
 
-Respond with SQL DDL and explanatory notes.`,
+Write complete PostgreSQL DDL:
+- Every table definition with ALL columns, types, NOT NULL constraints, defaults
+- Every table gets: id UUID PRIMARY KEY DEFAULT gen_random_uuid(), created_at, updated_at
+- Foreign keys with explicit ON DELETE behavior
+- Indexes for every foreign key and frequently-queried column
+- CHECK constraints for status/enum columns
+- CREATE OR REPLACE FUNCTION + TRIGGER for updated_at auto-update
+- Sample seed data: 5–10 realistic INSERT rows per core table
+
+CRITICAL: Write the COMPLETE SQL. No truncation. No "-- add more tables here". Every table fully defined with all columns and constraints.`,
   },
   {
     id: 'wireframes',

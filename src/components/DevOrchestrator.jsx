@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { NODE_TEMPLATES, MODEL_OPTIONS } from '../lib/models';
-import { executePipeline, retrySingleNode } from '../lib/pipeline';
+import { executePipeline, retrySingleNode, executePartialPipeline } from '../lib/pipeline';
 import { loadPipelineState, savePipelineState, clearPipelineState, getAgentConfigs } from '../lib/settings';
 import { optimizePipeline, autoFixPipeline, getOptimizerModel } from '../lib/optimize';
 import { testAgent } from '../lib/agentCall';
@@ -10,12 +10,30 @@ import Canvas from './Canvas';
 import NodeInspector from './NodeInspector';
 import TemplateSelector from './TemplateSelector';
 import Settings from './Settings';
+import Help from './Help';
 
 // ─── Unique node ID generator ─────────────────────────────────────────────────
 let _nodeSeq = 0;
 function makeNodeId(templateId) {
   return `${templateId}-${++_nodeSeq}`;
 }
+
+// ─── File map: templateId → download filename ─────────────────────────────────
+const FILE_MAP = {
+  requirements:  { name: 'requirements.md',      ext: 'md'   },
+  db_schema:     { name: 'schema.sql',            ext: 'sql'  },
+  api_contract:  { name: 'openapi.yaml',          ext: 'yaml' },
+  frontend:      { name: 'frontend.tsx',          ext: 'tsx'  },
+  backend:       { name: 'server.ts',             ext: 'ts'   },
+  wireframes:    { name: 'wireframes.md',         ext: 'md'   },
+  auth:          { name: 'auth.ts',               ext: 'ts'   },
+  payments:      { name: 'payments.ts',           ext: 'ts'   },
+  tests:         { name: 'tests.spec.ts',         ext: 'ts'   },
+  deploy:        { name: 'docker-compose.yml',    ext: 'yml'  },
+  web_research:  { name: 'research-notes.md',     ext: 'md'   },
+  peer_review:   { name: 'peer-review.md',        ext: 'md'   },
+  fact_check:    { name: 'fact-check.md',         ext: 'md'   },
+};
 
 // ─── Markdown output renderer ─────────────────────────────────────────────────
 function OutputMarkdown({ content }) {
@@ -74,21 +92,17 @@ function CopyButton({ text, className = '' }) {
 // ─── Optimizer / Auto-fix result banner ───────────────────────────────────────
 function OptimizeBanner({ banner, nodes, onDismiss }) {
   const [expanded, setExpanded] = useState(false);
-  const { type, result } = banner;
+  const { type, result, prevEdgeCount } = banner;
   const isOptimize = type === 'optimize';
 
   const summary = isOptimize ? result?.strategy : result?.summary;
   const changes = isOptimize ? result?.nodes : result?.fixes;
   const changeEntries = changes ? Object.entries(changes) : [];
 
-  // Count actual changes
-  const modelChanges = changeEntries.filter(([id, v]) => {
-    if (isOptimize) {
-      const node = nodes.find((n) => n.id === id);
-      return v?.model && v.model !== node?.model;
-    }
-    return v?.model;
-  });
+  const modelChanges = changeEntries.filter(([, v]) => v?.model);
+  const promptChanges = !isOptimize ? changeEntries.filter(([, v]) => v?.promptAddition) : [];
+  const edgeCount = isOptimize && Array.isArray(result?.edges) ? result.edges.length : 0;
+  const edgesChanged = isOptimize && edgeCount !== prevEdgeCount;
 
   const accentCls = isOptimize
     ? { border: 'border-violet-800/50', bg: 'bg-violet-950/25', text: 'text-violet-300', badge: 'bg-violet-900/40 text-violet-300 border-violet-800/40' }
@@ -97,24 +111,31 @@ function OptimizeBanner({ banner, nodes, onDismiss }) {
   return (
     <div className={`border-b ${accentCls.border} ${accentCls.bg} px-4 py-2.5`}>
       <div className="flex items-start gap-3">
-        <span className="text-lg mt-0.5 flex-shrink-0">{isOptimize ? '🧠' : '🔧'}</span>
+        <span className="text-lg mt-0.5 flex-shrink-0">{isOptimize ? '🧠' : '🔄'}</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className={`text-xs font-bold ${accentCls.text}`}>{isOptimize ? 'Auto-Configure' : 'Auto-Fix'} Complete</span>
+            <span className={`text-xs font-bold ${accentCls.text}`}>{isOptimize ? 'Auto-Configure' : 'Self-Heal'} Complete</span>
             {modelChanges.length > 0 && (
               <span className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold ${accentCls.badge}`}>
-                {modelChanges.length} model{modelChanges.length !== 1 ? 's' : ''} updated
+                {modelChanges.length} model{modelChanges.length !== 1 ? 's' : ''} assigned
               </span>
             )}
-            {!isOptimize && changeEntries.filter(([, v]) => v?.promptAddition).length > 0 && (
+            {edgesChanged && (
               <span className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold ${accentCls.badge}`}>
-                {changeEntries.filter(([, v]) => v?.promptAddition).length} prompt{changeEntries.filter(([, v]) => v?.promptAddition).length !== 1 ? 's' : ''} enhanced
+                {edgeCount} connection{edgeCount !== 1 ? 's' : ''} configured
+              </span>
+            )}
+            {promptChanges.length > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold ${accentCls.badge}`}>
+                {promptChanges.length} prompt{promptChanges.length !== 1 ? 's' : ''} enhanced
               </span>
             )}
           </div>
           {summary && <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{summary}</p>}
+          {isOptimize && result?.connectionRationale && (
+            <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">↔ {result.connectionRationale}</p>
+          )}
 
-          {/* Per-node details */}
           {changeEntries.length > 0 && (
             <button
               onClick={() => setExpanded((v) => !v)}
@@ -140,11 +161,7 @@ function OptimizeBanner({ banner, nodes, onDismiss }) {
             </div>
           )}
         </div>
-        <button
-          onClick={onDismiss}
-          className="flex-shrink-0 text-gray-600 hover:text-gray-400 transition-colors text-sm mt-0.5"
-          title="Dismiss"
-        >✕</button>
+        <button onClick={onDismiss} className="flex-shrink-0 text-gray-600 hover:text-gray-400 transition-colors text-sm mt-0.5" title="Dismiss">✕</button>
       </div>
     </div>
   );
@@ -387,6 +404,50 @@ export default function DevOrchestrator() {
     setRunPhase('');
   }, []);
 
+  // ── Download outputs as real code files ──────────────────────────────────
+  const downloadProjectFiles = useCallback(() => {
+    if (Object.keys(outputs).length === 0) return;
+
+    const langExt = { sql: 'sql', yaml: 'yaml', yml: 'yaml', typescript: 'ts', ts: 'ts', tsx: 'tsx', javascript: 'js', js: 'js', python: 'py', py: 'py', json: 'json', dockerfile: 'dockerfile', bash: 'sh', sh: 'sh' };
+
+    Object.entries(outputs).forEach(([nodeId, output]) => {
+      const node = nodes.find((n) => n.id === nodeId);
+      const templateId = node?.templateId || node?.id || nodeId;
+      const tmpl = NODE_TEMPLATES.find((t) => t.id === templateId);
+      const mapping = FILE_MAP[templateId];
+
+      // Try to extract the largest code block
+      const codeBlockRe = /```(\w+)?\n([\s\S]*?)```/g;
+      let bestBlock = null;
+      let bestLang = null;
+      let m;
+      while ((m = codeBlockRe.exec(output)) !== null) {
+        if (!bestBlock || m[2].length > bestBlock.length) {
+          bestBlock = m[2];
+          bestLang = (m[1] || '').toLowerCase();
+        }
+      }
+
+      let content, filename;
+      if (bestBlock && bestLang && langExt[bestLang]) {
+        const ext = mapping ? mapping.ext : langExt[bestLang];
+        filename = mapping ? mapping.name : `${tmpl?.label?.toLowerCase().replace(/\s+/g, '-') || nodeId}.${ext}`;
+        content = bestBlock;
+      } else {
+        filename = mapping ? mapping.name.replace(/\.\w+$/, '.md') : `${tmpl?.label?.toLowerCase().replace(/\s+/g, '-') || nodeId}.md`;
+        content = `# ${node?.customLabel || tmpl?.label || nodeId}\n\n${output}`;
+      }
+
+      const blob = new Blob([content], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  }, [outputs, nodes]);
+
   // ── Export outputs as Markdown ────────────────────────────────────────────
   const exportOutputs = useCallback(() => {
     if (Object.keys(outputs).length === 0) return;
@@ -411,9 +472,14 @@ export default function DevOrchestrator() {
     URL.revokeObjectURL(url);
   }, [outputs, nodes, projectDesc, modelsUsed]);
 
-  // ── LLM Optimizer — auto-picks best models before running ─────────────────
+  // ── LLM Optimizer — auto-picks best models + designs DAG connections ─────────
   const optimizeHandler = useCallback(async () => {
     if (optimizing || isRunning || nodes.length === 0) return;
+    if (!projectDesc.trim()) {
+      setOptimizePhase('✗ Add a project description first — Auto-Configure needs it to design smart connections');
+      setTimeout(() => setOptimizePhase(''), 4000);
+      return;
+    }
     const controller = new AbortController();
     optimizeAbortRef.current = controller;
     setOptimizing(true);
@@ -436,67 +502,153 @@ export default function DevOrchestrator() {
         }));
       }
 
-      setOptimizeBanner({ type: 'optimize', result });
+      // Apply optimized edge connections (AI-designed DAG)
+      if (result?.edges && Array.isArray(result.edges) && result.edges.length > 0) {
+        setEdges(result.edges);
+      }
+
+      setOptimizeBanner({ type: 'optimize', result, prevEdgeCount: edges.length });
       setOptimizePhase('');
     } catch (err) {
       if (err.name !== 'AbortError') {
         setOptimizePhase(`✗ Optimizer failed: ${err.message}`);
-        setTimeout(() => setOptimizePhase(''), 4000);
+        setTimeout(() => setOptimizePhase(''), 6000);
       }
     } finally {
       setOptimizing(false);
     }
   }, [nodes, edges, projectDesc, optimizing, isRunning]);
 
-  // ── LLM Auto-Fix — diagnoses errors and applies targeted fixes ─────────────
+  // ── Self-Heal Loop — diagnose → fix → re-run, repeat until all green ────────
   const autoFixHandler = useCallback(async () => {
     if (optimizing || isRunning || nodes.length === 0) return;
+
+    const MAX_ATTEMPTS = 5;
     const controller = new AbortController();
     optimizeAbortRef.current = controller;
+    abortRef.current = controller;
     setOptimizing(true);
+    setIsRunning(true);
     setOptimizeBanner(null);
-    setOptimizePhase('🔧 Diagnosing failures…');
+    setStreamingChunks({});
+
+    // Work with local mutable copies so we can loop without waiting for React state
+    let curNodes = nodes;
+    let curStatuses = { ...nodeStatuses };
+    let curOutputs = { ...outputs };
+    let curLog = [...executionLog];
+
+    const hasFailed = (statuses) =>
+      curNodes.some((n) => statuses[n.id] === 'error' || statuses[n.id] === 'skipped');
 
     try {
-      const result = await autoFixPipeline({
-        nodes, edges, projectDesc,
-        nodeStatuses, outputs, executionLog,
-        signal: controller.signal,
-        onProgress: setOptimizePhase,
-      });
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        if (!hasFailed(curStatuses)) break;
+        if (controller.signal.aborted) break;
 
-      // Apply model swaps + prompt additions for each fixed node
-      if (result?.fixes) {
-        setNodes((prev) => prev.map((n) => {
-          const fix = result.fixes[n.id];
-          if (!fix) return n;
-          const model = ('model' in fix) ? (fix.model || null) : n.model;
-          const customPrompt = fix.promptAddition
-            ? (n.customPrompt ? `${n.customPrompt}\n\n${fix.promptAddition}` : fix.promptAddition)
-            : n.customPrompt;
-          return { ...n, model, customPrompt };
-        }));
+        // ── Step 1: Diagnose ──────────────────────────────────────────────────
+        setOptimizePhase(`🔄 Self-heal ${attempt}/${MAX_ATTEMPTS} — diagnosing…`);
+        let fixes = null;
+        try {
+          const result = await autoFixPipeline({
+            nodes: curNodes, edges, projectDesc,
+            nodeStatuses: curStatuses, outputs: curOutputs, executionLog: curLog,
+            signal: controller.signal,
+            onProgress: setOptimizePhase,
+          });
+          fixes = result?.fixes || null;
+        } catch (diagErr) {
+          if (diagErr.name === 'AbortError') break;
+          // Diagnosis failed (e.g. optimizer model also rate-limited) — skip diagnosis,
+          // still attempt re-run with existing node configs
+          const entry = { time: new Date().toLocaleTimeString(), msg: `⚠️ Diagnosis unavailable: ${diagErr.message.slice(0, 80)} — retrying with current config` };
+          curLog = [...curLog, entry];
+          setExecutionLog((prev) => [...prev, entry]);
+        }
 
-        // Clear error/skipped status on fixed nodes so they can re-run
-        const fixedIds = Object.keys(result.fixes);
-        setNodeStatuses((prev) => {
-          const next = { ...prev };
-          fixedIds.forEach((id) => { if (next[id] === 'error' || next[id] === 'skipped') delete next[id]; });
-          return next;
-        });
+        // ── Step 2: Apply fixes ───────────────────────────────────────────────
+        if (fixes) {
+          curNodes = curNodes.map((n) => {
+            const fix = fixes[n.id];
+            if (!fix) return n;
+            const model = ('model' in fix) ? (fix.model || null) : n.model;
+            const customPrompt = fix.promptAddition
+              ? (n.customPrompt ? `${n.customPrompt}\n\n${fix.promptAddition}` : fix.promptAddition)
+              : n.customPrompt;
+            return { ...n, model, customPrompt };
+          });
+          setNodes(curNodes);
+        }
+
+        // Clear error/skipped so partial pipeline can re-run them
+        const toRerun = Object.entries(curStatuses)
+          .filter(([, s]) => s === 'error' || s === 'skipped')
+          .map(([id]) => id);
+        toRerun.forEach((id) => delete curStatuses[id]);
+        toRerun.forEach((id) => delete curOutputs[id]); // clear bad outputs so they re-run
+        setNodeStatuses({ ...curStatuses });
+        setOutputs({ ...curOutputs });
+
+        // ── Step 3: Re-run only the failed subtree ────────────────────────────
+        setOptimizePhase(`🔄 Self-heal ${attempt}/${MAX_ATTEMPTS} — re-running failed nodes…`);
+        setActiveTab('canvas');
+
+        const cbs = {
+          onStatusChange: (id, status) => {
+            curStatuses[id] = status;
+            setNodeStatuses((prev) => ({ ...prev, [id]: status }));
+          },
+          onOutput: (id, text) => {
+            curOutputs[id] = text;
+            setOutputs((prev) => ({ ...prev, [id]: text }));
+          },
+          onLog: (msg) => {
+            const entry = { time: new Date().toLocaleTimeString(), msg };
+            curLog = [...curLog, entry];
+            setExecutionLog((prev) => [...prev, entry]);
+          },
+          onChunk: (id, chunk) => {
+            setStreamingChunks((prev) => ({ ...prev, [id]: (prev[id] || '') + chunk }));
+          },
+        };
+
+        try {
+          const partialResult = await executePartialPipeline({
+            nodes: curNodes, edges, projectDesc,
+            mode: execMode,
+            existingOutputs: curOutputs,
+            signal: controller.signal,
+            ...cbs,
+          });
+          setModelsUsed((prev) => ({ ...prev, ...(partialResult.modelsUsed || {}) }));
+        } catch (runErr) {
+          if (runErr.name === 'AbortError') break;
+        }
+
+        setStreamingChunks({});
       }
 
-      setOptimizeBanner({ type: 'autofix', result });
-      setOptimizePhase('');
+      // ── Final status ──────────────────────────────────────────────────────
+      const stillBroken = hasFailed(curStatuses);
+      if (stillBroken) {
+        const failCount = curNodes.filter((n) => curStatuses[n.id] === 'error' || curStatuses[n.id] === 'skipped').length;
+        setOptimizePhase(`⚠️ ${failCount} node${failCount > 1 ? 's' : ''} couldn't be healed — no remaining model options`);
+        setTimeout(() => setOptimizePhase(''), 5000);
+      } else {
+        setOptimizePhase('✓ All nodes healed — pipeline is green!');
+        setTimeout(() => setOptimizePhase(''), 3000);
+      }
     } catch (err) {
       if (err.name !== 'AbortError') {
-        setOptimizePhase(`✗ Auto-fix failed: ${err.message}`);
+        setOptimizePhase(`✗ Self-heal failed: ${err.message.slice(0, 100)}`);
         setTimeout(() => setOptimizePhase(''), 4000);
       }
     } finally {
       setOptimizing(false);
+      setIsRunning(false);
+      setStreamingChunks({});
     }
-  }, [nodes, edges, projectDesc, nodeStatuses, outputs, executionLog, optimizing, isRunning]);
+  }, [nodes, edges, projectDesc, nodeStatuses, outputs, executionLog, execMode, optimizing, isRunning]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const allTemplateIds = nodes.map((n) => n.templateId || n.id);
@@ -565,6 +717,7 @@ export default function DevOrchestrator() {
                     { id: 'canvas',  label: '🗺️ Canvas',  ready: true       },
                     { id: 'outputs', label: '📄 Outputs', ready: hasOutputs },
                     { id: 'log',     label: '📜 Log',     ready: hasLog     },
+                    { id: 'help',    label: '❓ Help',    ready: true       },
                   ].map((tab) => (
                     <button
                       key={tab.id}
@@ -626,10 +779,10 @@ export default function DevOrchestrator() {
                       {hasErrors && (
                         <button
                           onClick={autoFixHandler}
-                          title="Let an LLM diagnose failures and apply fixes"
+                          title="Diagnose failures, apply fixes, re-run — repeat until all nodes are green"
                           className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-amber-700/50 bg-amber-950/30 text-amber-300 hover:bg-amber-950/60 transition-colors flex items-center gap-1.5"
                         >
-                          🔧 Auto-Fix
+                          🔄 Self-Heal
                         </button>
                       )}
                     </>
@@ -727,6 +880,7 @@ export default function DevOrchestrator() {
                       nodeStatuses={nodeStatuses}
                       agents={agents}
                       onSelectNode={setSelectedNode}
+                      onToggleEdge={toggleEdge}
                     />
                     {selectedNodeData && (
                       <NodeInspector
@@ -754,6 +908,53 @@ export default function DevOrchestrator() {
                 {/* Outputs */}
                 {activeTab === 'outputs' && (
                   <div className="flex-1 overflow-auto p-5">
+
+                    {/* Project Summary */}
+                    {hasOutputs && (() => {
+                      const totalLines = Object.values(outputs).reduce((s, o) => s + o.split('\n').length, 0);
+                      const totalWords = Object.values(outputs).reduce((s, o) => s + o.trim().split(/\s+/).filter(Boolean).length, 0);
+                      return (
+                        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden mb-5">
+                          <div className="px-4 py-3 border-b border-gray-800 flex items-center gap-2 flex-wrap">
+                            <span className="text-base">📁</span>
+                            <span className="text-sm font-bold text-gray-100">Generated Project</span>
+                            <span className="text-[10px] text-gray-600 ml-1 truncate max-w-xs">{projectDesc}</span>
+                            <div className="ml-auto flex gap-3 text-[10px] text-gray-500 font-mono">
+                              <span>{Object.keys(outputs).length} files</span>
+                              <span>{totalLines.toLocaleString()} lines</span>
+                              <span>{totalWords.toLocaleString()} words</span>
+                            </div>
+                          </div>
+                          <div className="p-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                            {Object.entries(outputs).map(([nodeId, output]) => {
+                              const node = nodes.find((n) => n.id === nodeId);
+                              const tmpl = NODE_TEMPLATES.find((t) => t.id === (node?.templateId || nodeId));
+                              const tid = node?.templateId || nodeId;
+                              const isErr = nodeStatuses[nodeId] === 'error' || output.startsWith('ERROR:');
+                              const lines = output.split('\n').length;
+                              const mapping = FILE_MAP[tid];
+                              return (
+                                <button
+                                  key={nodeId}
+                                  onClick={() => document.getElementById(`out-${nodeId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                                  className="flex items-start gap-2 p-2 rounded-lg border border-gray-800 bg-gray-950/50 hover:border-gray-600 hover:bg-gray-900 transition-all text-left"
+                                >
+                                  <span className="text-lg flex-shrink-0 leading-none mt-0.5">{tmpl?.icon}</span>
+                                  <div className="min-w-0">
+                                    <div className="text-[11px] font-semibold text-gray-200 truncate">{node?.customLabel || tmpl?.label}</div>
+                                    <div className="text-[10px] text-gray-600 truncate font-mono">{mapping?.name || `${tid}.md`}</div>
+                                    <div className={`text-[10px] font-semibold mt-0.5 ${isErr ? 'text-red-400' : 'text-emerald-500'}`}>
+                                      {isErr ? '✗ error' : `✓ ${lines.toLocaleString()} lines`}
+                                    </div>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     {/* Export bar */}
                     <div className="flex items-center justify-between mb-4">
                       <span className="text-xs text-gray-500">{Object.keys(outputs).length} outputs</span>
@@ -770,6 +971,13 @@ export default function DevOrchestrator() {
                           className="text-xs px-3 py-1 rounded-lg bg-gray-800 border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
                         >
                           ⎘ Copy All
+                        </button>
+                        <button
+                          onClick={downloadProjectFiles}
+                          className="text-xs px-3 py-1 rounded-lg bg-indigo-900/40 border border-indigo-700/50 text-indigo-300 hover:bg-indigo-900/70 transition-colors font-semibold"
+                          title="Download each output as a real code file (.sql, .yaml, .ts, .js, etc.)"
+                        >
+                          📦 Download Files
                         </button>
                         <button
                           onClick={exportOutputs}
@@ -793,6 +1001,7 @@ export default function DevOrchestrator() {
                         return (
                           <div
                             key={nodeId}
+                            id={`out-${nodeId}`}
                             className="bg-gray-900 border rounded-xl overflow-hidden"
                             style={{ borderColor: isError ? '#7f1d1d' : '#1f2937' }}
                           >
@@ -863,6 +1072,9 @@ export default function DevOrchestrator() {
                     </div>
                   </div>
                 )}
+
+                {/* Help */}
+                {activeTab === 'help' && <Help />}
 
               </div>
 

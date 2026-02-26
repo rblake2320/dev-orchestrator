@@ -40,13 +40,12 @@ async function testAIProvider(providerDef, apiKey) {
   }
 
   if (providerDef.testFormat === 'gemini') {
-    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model: providerDef.testModel, max_tokens: 10, messages: [{ role: 'user', content: 'Say OK' }] }),
+    // Use native models list endpoint — simplest reliable key check, no model name dependency
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}&pageSize=1`, {
+      method: 'GET',
       signal,
     });
-    if (res.status === 401 || res.status === 403) throw new Error('Invalid API key');
+    if (res.status === 400 || res.status === 401 || res.status === 403) throw new Error('Invalid API key');
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e?.error?.message || `HTTP ${res.status}`); }
     return true;
   }
