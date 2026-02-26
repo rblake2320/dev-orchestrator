@@ -1,10 +1,13 @@
 import { MODEL_OPTIONS } from './models.js';
+import { getSettings } from './settings.js';
 
 /**
  * Classify an error message so the healing strategy knows what to do.
  *   'auth'         → API key missing/invalid — skip the whole provider
  *   'rate_limit'   → Too many requests — skip this provider temporarily
  *   'server_error' → 5xx — retry same or fallback
+ *   'unavailable'  → Network/CORS/fetch failure
+ *   'timeout'      → Request timed out
  *   'unknown'      → Any other failure — try fallbacks
  */
 export function classifyError(message) {
@@ -17,7 +20,10 @@ export function classifyError(message) {
     msg.includes('invalid_api_key') ||
     msg.includes('cors') ||
     msg.includes('unauthorized') ||
-    msg.includes('permission')
+    msg.includes('permission') ||
+    msg.includes('missing authorization') ||
+    msg.includes('no api key') ||
+    msg.includes('api key required')
   ) return 'auth';
   if (
     msg.includes('429') ||
@@ -41,7 +47,8 @@ export function classifyError(message) {
     msg.includes('econnrefused') ||
     msg.includes('network') ||
     msg.includes('unreachable') ||
-    msg.includes('fetch failed')
+    msg.includes('fetch failed') ||
+    msg.includes('failed to fetch')
   ) return 'unavailable';
   return 'unknown';
 }
@@ -70,7 +77,9 @@ const FALLBACK_PRIORITY = [
  * Returns an ordered list of fallback ModelOption objects to try when a node fails.
  *
  * Strategy:
- *   - auth error    → skip every model from the same provider (key likely absent for all)
+ *   - Only includes models whose provider has an API key configured (or is Ollama/local)
+ *   - auth error    → also skip every model from the same provider (key is definitely broken)
+ *   - rate_limit    → skip only models from the same provider temporarily
  *   - other errors  → skip only the exact model that just failed
  *
  * @param {string} failedModelId  - the model ID that triggered the error
@@ -78,16 +87,26 @@ const FALLBACK_PRIORITY = [
  * @returns {Array} ordered array of ModelOption objects
  */
 export function getFallbackChain(failedModelId, errorType) {
+  const settings = getSettings();
   const failedModel = MODEL_OPTIONS.find((m) => m.id === failedModelId);
   const failedProvider = failedModel?.provider;
+
+  // Only try providers that actually have keys configured
+  function isConfigured(provider) {
+    if (provider === 'ollama') return true; // local, no key needed
+    const key = settings[`${provider}Key`] || '';
+    return key.trim().length > 0;
+  }
 
   return FALLBACK_PRIORITY
     .filter((id) => {
       if (id === failedModelId) return false;
       const m = MODEL_OPTIONS.find((opt) => opt.id === id);
       if (!m) return false;
-      // Auth error: entire provider is likely broken — skip all of its models
-      if (errorType === 'auth' && m.provider === failedProvider) return false;
+      // Skip any model whose provider has no configured API key
+      if (!isConfigured(m.provider)) return false;
+      // Auth/rate_limit on a provider: skip ALL models from that provider
+      if ((errorType === 'auth' || errorType === 'rate_limit') && m.provider === failedProvider) return false;
       return true;
     })
     .map((id) => MODEL_OPTIONS.find((m) => m.id === id))

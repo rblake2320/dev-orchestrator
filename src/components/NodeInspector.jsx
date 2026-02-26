@@ -94,8 +94,29 @@ export default function NodeInspector({
         )}
       </div>
 
-      {/* Retry button — shown when node has output */}
-      {outputs[node.id] && (
+      {/* Recovery panel — shown when node failed or was skipped */}
+      {(status === 'error' || status === 'skipped') && (
+        <div className="mb-5 p-3 rounded-lg bg-red-950/20 border border-red-900/50">
+          <p className="text-[11px] text-red-300 font-semibold mb-1">
+            {status === 'error' ? '✗ All self-heal attempts exhausted' : '⊘ Skipped — upstream node failed'}
+          </p>
+          <p className="text-[11px] text-gray-400 mb-3">
+            {status === 'error'
+              ? 'Pick a different model in the Driver section below, then retry.'
+              : 'Fix or retry the upstream node first, then retry this one.'}
+          </p>
+          <button
+            onClick={() => onRetryNode(node.id)}
+            disabled={isRunning}
+            className="w-full px-3 py-2 text-xs font-semibold rounded-lg border border-red-700/60 bg-red-950/40 text-red-300 hover:bg-red-950/70 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            ↺ Retry This Node
+          </button>
+        </div>
+      )}
+
+      {/* Regenerate button — shown on successful/output nodes */}
+      {outputs[node.id] && status !== 'error' && status !== 'skipped' && (
         <button
           onClick={() => onRetryNode(node.id)}
           disabled={isRunning}

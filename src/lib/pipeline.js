@@ -170,6 +170,7 @@ async function runNode({ node, nodes, edges, projectDesc, outputs, signal, onSta
     const errorType = classifyError(err.message);
     const fallbacks = getFallbackChain(modelId, errorType).slice(0, MAX_HEAL_ATTEMPTS);
 
+    const triedModels = [modelId];
     for (const fallbackModel of fallbacks) {
       if (signal?.aborted) throw new DOMException('Pipeline aborted', 'AbortError');
       onStatusChange(node.id, 'healing');
@@ -187,15 +188,19 @@ async function runNode({ node, nodes, edges, projectDesc, outputs, signal, onSta
         if (healErr.name === 'AbortError') throw healErr;
         const healType = classifyError(healErr.message);
         onLog(`✗ ${fallbackModel.label} failed (${healType}): ${healErr.message.slice(0, 120)}`);
+        triedModels.push(fallbackModel.id);
       }
     }
     // ── End Self-Heal ─────────────────────────────────────────────────────────
 
-    const summary = `ERROR: ${err.message}`;
+    const noFallbackHint = fallbacks.length === 0
+      ? ' No configured fallback models — add API keys in ⚙️ Settings.'
+      : ` Tried: ${triedModels.join(', ')}.`;
+    const summary = `ERROR: ${err.message}\n\nSelf-heal exhausted.${noFallbackHint}\n\nClick this node → pick a different model → Retry.`;
     outputs[node.id] = summary;
     onOutput(node.id, summary);
     onStatusChange(node.id, 'error');
-    onLog(`✗ ${template?.label || node.id} — all recovery attempts exhausted`);
+    onLog(`✗ ${template?.label || node.id} — all recovery attempts exhausted.${noFallbackHint}`);
     return { healed: false, modelUsed: null, failed: true };
   }
 }
