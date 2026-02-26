@@ -1,5 +1,4 @@
-// ─── Node Templates ─────────────────────────────────────────────────────
-// Each template defines a generation step in the software pipeline
+// ─── Node Templates ───────────────────────────────────────────────────────────
 export const NODE_TEMPLATES = [
   {
     id: 'requirements',
@@ -172,32 +171,128 @@ Write complete, runnable test files.`,
 
 Write complete, copy-paste-ready config files.`,
   },
+  // ── Intelligence & Review Nodes ──────────────────────────────────────────────
+  {
+    id: 'web_research',
+    label: 'Web Research',
+    icon: '🌐',
+    color: '#0ea5e9',
+    modelTier: 'mid',
+    webSearch: true,
+    desc: 'Search the internet for relevant context',
+    systemPrompt: `You are a Research Analyst with access to current web search results.
+Based on the search results and project description provided, synthesize relevant findings:
+
+- Summarize key industry practices and standards relevant to this project
+- Identify recommended libraries, frameworks, or tools and their current versions
+- Note potential risks, known pitfalls, or common mistakes in this domain
+- Highlight any recent developments that should influence the design
+- List authoritative resources for the team to reference
+
+Be specific, factual, and always cite which search result supports each finding.
+Organize output as structured markdown with clear sections.`,
+  },
+  {
+    id: 'peer_review',
+    label: 'Peer Review',
+    icon: '🔍',
+    color: '#f97316',
+    modelTier: 'frontier',
+    desc: 'Skeptical critical review of all upstream work',
+    systemPrompt: `You are a skeptical Senior Technical Reviewer conducting a rigorous peer review.
+
+Your mandate: be CRITICAL and SPECIFIC. Do not soften findings for politeness. Your job is to catch problems BEFORE they reach production.
+
+For EVERY section you review, challenge:
+1. **Correctness** — Logical errors, false assumptions, incorrect technical claims
+2. **Completeness** — Missing requirements, unhandled edge cases, gaps in coverage
+3. **Consistency** — Contradictions between sections (e.g. API contract vs backend implementation)
+4. **Feasibility** — Is this actually buildable as described? Unrealistic scope?
+5. **Security** — Vulnerabilities, missing auth checks, exposed secrets, injection risks
+6. **Scalability** — Will this break under real load? N+1 queries? Missing indexes?
+7. **Maintainability** — Will another developer understand and extend this?
+
+Format your output as:
+
+## Overall Verdict: [APPROVED ✓ | NEEDS REVISION ⚠ | REJECTED ✗]
+
+## Critical Issues (blocking — must fix before proceeding)
+- [issue]: [specific problem] → [recommended fix]
+
+## Moderate Issues (important — should fix)
+- [issue]: [specific problem] → [recommended fix]
+
+## Minor Issues (polish)
+- [issue]: [specific problem] → [recommended fix]
+
+## What Was Done Well
+(Be brief — focus on problems, not praise)
+
+Be direct. Vague feedback is useless.`,
+  },
+  {
+    id: 'fact_check',
+    label: 'Fact Check',
+    icon: '✅',
+    color: '#22c55e',
+    modelTier: 'frontier',
+    webSearch: true,
+    desc: 'Verify technical claims against live web sources',
+    systemPrompt: `You are a rigorous Fact-Checker and Technical Verification Specialist.
+
+Using the web search results provided, systematically verify the technical claims in the upstream outputs.
+
+For each claim, classify as:
+- ✓ **VERIFIED** — Confirmed accurate by search results (cite source)
+- ? **UNVERIFIED** — Cannot confirm; insufficient evidence found
+- ✗ **INCORRECT** — Factually wrong — state the correct information and source
+- ⚠ **OUTDATED** — Was accurate but superseded; state current correct info
+- ⚠ **MISLEADING** — Technically true but creates a false impression
+
+Focus your verification on:
+- Library/framework versions and whether they are current
+- API endpoints and whether they still exist as described
+- Security recommendations — are they current best practice or obsolete?
+- Performance claims and benchmarks
+- Availability of mentioned third-party services
+- Licensing and pricing of tools mentioned
+- Breaking changes in recent versions
+
+## Summary
+**Confidence Score**: X/10
+**Verified Claims**: N
+**Issues Found**: N
+**Recommended Corrections**: [list]
+
+Do not make up sources. If you cannot verify something from the search results, say so.`,
+  },
 ];
 
-// ─── AI Model Options ───────────────────────────────────────────────────
+// ─── AI Model Options ─────────────────────────────────────────────────────────
 export const MODEL_OPTIONS = [
-  { id: 'claude-opus',    label: 'Claude Opus',         provider: 'anthropic', model: 'claude-opus-4-6',          tier: 'frontier', badge: '⚡', color: '#d97706' },
-  { id: 'claude-sonnet',  label: 'Claude Sonnet',       provider: 'anthropic', model: 'claude-sonnet-4-5-20250929', tier: 'frontier', badge: '🔥', color: '#6366f1' },
-  { id: 'gpt-4o',         label: 'GPT-4o',              provider: 'openai',    model: 'gpt-4o',                   tier: 'frontier', badge: '🌐', color: '#10b981' },
-  { id: 'gpt-4o-mini',    label: 'GPT-4o Mini',         provider: 'openai',    model: 'gpt-4o-mini',              tier: 'mid',      badge: '🌐', color: '#34d399' },
-  { id: 'llama-70b',      label: 'Llama 70B (Groq)',    provider: 'groq',      model: 'llama-3.3-70b-versatile',  tier: 'mid',      badge: '🏎️', color: '#8b5cf6' },
-  { id: 'ollama-llama',   label: 'Llama (Local)',        provider: 'ollama',    model: 'llama3.1',                 tier: 'local',    badge: '🏠', color: '#f97316' },
-  { id: 'ollama-mistral', label: 'Mistral (Local)',      provider: 'ollama',    model: 'mistral',                  tier: 'local',    badge: '🏠', color: '#ec4899' },
-  { id: 'ollama-gemma',      label: 'Gemma (Local)',         provider: 'ollama',      model: 'gemma2',                              tier: 'local',    badge: '🏠', color: '#14b8a6' },
-  { id: 'gemini-flash',      label: 'Gemini 2.0 Flash',      provider: 'gemini',      model: 'gemini-2.0-flash',                    tier: 'frontier', badge: '✦',  color: '#4285f4' },
-  { id: 'gemini-pro',        label: 'Gemini 1.5 Pro',         provider: 'gemini',      model: 'gemini-1.5-pro',                      tier: 'frontier', badge: '✦',  color: '#34a853' },
-  { id: 'openrouter-claude', label: 'Claude (OpenRouter)',    provider: 'openrouter',  model: 'anthropic/claude-sonnet-4-5',         tier: 'frontier', badge: '🔀', color: '#7c3aed' },
-  { id: 'deepseek-chat',     label: 'DeepSeek Chat',          provider: 'deepseek',    model: 'deepseek-chat',                       tier: 'mid',      badge: '🤖', color: '#0891b2' },
-  { id: 'deepseek-r1',       label: 'DeepSeek R1',            provider: 'deepseek',    model: 'deepseek-reasoner',                   tier: 'frontier', badge: '🧠', color: '#0e7490' },
+  { id: 'claude-opus',       label: 'Claude Opus',          provider: 'anthropic',   model: 'claude-opus-4-6',             tier: 'frontier', badge: '⚡', color: '#d97706' },
+  { id: 'claude-sonnet',     label: 'Claude Sonnet',        provider: 'anthropic',   model: 'claude-sonnet-4-5-20250929',  tier: 'frontier', badge: '🔥', color: '#6366f1' },
+  { id: 'gpt-4o',            label: 'GPT-4o',               provider: 'openai',      model: 'gpt-4o',                      tier: 'frontier', badge: '🌐', color: '#10b981' },
+  { id: 'gpt-4o-mini',       label: 'GPT-4o Mini',          provider: 'openai',      model: 'gpt-4o-mini',                 tier: 'mid',      badge: '🌐', color: '#34d399' },
+  { id: 'llama-70b',         label: 'Llama 70B (Groq)',     provider: 'groq',        model: 'llama-3.3-70b-versatile',     tier: 'mid',      badge: '🏎️', color: '#8b5cf6' },
+  { id: 'llama-8b',          label: 'Llama 8B (Groq)',      provider: 'groq',        model: 'llama-3.1-8b-instant',        tier: 'local',    badge: '🏎️', color: '#a78bfa' },
+  { id: 'ollama-llama',      label: 'Llama (Local)',         provider: 'ollama',      model: 'llama3.1',                    tier: 'local',    badge: '🏠', color: '#f97316' },
+  { id: 'ollama-mistral',    label: 'Mistral (Local)',       provider: 'ollama',      model: 'mistral',                     tier: 'local',    badge: '🏠', color: '#ec4899' },
+  { id: 'ollama-gemma',      label: 'Gemma (Local)',         provider: 'ollama',      model: 'gemma2',                      tier: 'local',    badge: '🏠', color: '#14b8a6' },
+  { id: 'gemini-flash',      label: 'Gemini 2.0 Flash',     provider: 'gemini',      model: 'gemini-2.0-flash',            tier: 'frontier', badge: '✦',  color: '#4285f4' },
+  { id: 'gemini-pro',        label: 'Gemini 1.5 Pro',       provider: 'gemini',      model: 'gemini-1.5-pro',              tier: 'frontier', badge: '✦',  color: '#34a853' },
+  { id: 'openrouter-claude', label: 'Claude (OpenRouter)',   provider: 'openrouter',  model: 'anthropic/claude-sonnet-4-5', tier: 'frontier', badge: '🔀', color: '#7c3aed' },
+  { id: 'deepseek-chat',     label: 'DeepSeek Chat',        provider: 'deepseek',    model: 'deepseek-chat',               tier: 'mid',      badge: '🤖', color: '#0891b2' },
+  { id: 'deepseek-r1',       label: 'DeepSeek R1',          provider: 'deepseek',    model: 'deepseek-reasoner',           tier: 'frontier', badge: '🧠', color: '#0e7490' },
 ];
 
-// Auto-select best model for a tier
+// Auto-select best available model for a tier
 export function autoSelectModel(tier) {
   const priority = { frontier: 'claude-sonnet', mid: 'llama-70b', local: 'ollama-llama' };
   return priority[tier] || 'claude-sonnet';
 }
 
-// ─── Pipeline Templates ─────────────────────────────────────────────────
+// ─── Pipeline Templates ───────────────────────────────────────────────────────
 export const PIPELINE_TEMPLATES = [
   {
     id: 'fullstack',
@@ -247,6 +342,34 @@ export const PIPELINE_TEMPLATES = [
     edges: [
       ['requirements', 'db_schema'], ['requirements', 'api_contract'],
       ['db_schema', 'backend'], ['api_contract', 'frontend'], ['api_contract', 'backend'],
+    ],
+  },
+  {
+    id: 'research_first',
+    label: 'Research-First',
+    icon: '🌐',
+    desc: 'Web research informs every decision',
+    nodes: ['web_research', 'requirements', 'wireframes', 'api_contract', 'frontend', 'tests'],
+    edges: [
+      ['web_research', 'requirements'], ['web_research', 'api_contract'],
+      ['requirements', 'wireframes'], ['wireframes', 'frontend'],
+      ['api_contract', 'frontend'],
+      ['frontend', 'tests'],
+    ],
+  },
+  {
+    id: 'reviewed',
+    label: 'With Peer Review',
+    icon: '🔍',
+    desc: 'Full-stack + skeptical review + fact check',
+    nodes: ['web_research', 'requirements', 'db_schema', 'api_contract', 'backend', 'frontend', 'tests', 'peer_review', 'fact_check'],
+    edges: [
+      ['web_research', 'requirements'],
+      ['requirements', 'db_schema'], ['requirements', 'api_contract'],
+      ['db_schema', 'backend'], ['api_contract', 'backend'], ['api_contract', 'frontend'],
+      ['backend', 'tests'], ['frontend', 'tests'],
+      ['tests', 'peer_review'],
+      ['tests', 'fact_check'],
     ],
   },
 ];

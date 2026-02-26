@@ -62,6 +62,33 @@ export default defineConfig(({ mode }) => {
             headers: { Authorization: `Bearer ${env.DEEPSEEK_API_KEY}` },
           }),
         },
+        // ── Search providers ────────────────────────────────────────────────
+        '/api/proxy/brave': {
+          target: 'https://api.search.brave.com',
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/api\/proxy\/brave/, ''),
+          ...(env.BRAVE_SEARCH_API_KEY && {
+            headers: { 'X-Subscription-Token': env.BRAVE_SEARCH_API_KEY },
+          }),
+        },
+        '/api/proxy/serper': {
+          target: 'https://google.serper.dev',
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/api\/proxy\/serper/, ''),
+          ...(env.SERPER_API_KEY && {
+            headers: { 'X-API-KEY': env.SERPER_API_KEY },
+          }),
+        },
+        '/api/proxy/tavily': {
+          target: 'https://api.tavily.com',
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/api\/proxy\/tavily/, ''),
+        },
+        '/api/proxy/exa': {
+          target: 'https://api.exa.ai',
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/api\/proxy\/exa/, ''),
+        },
       },
     },
   };

@@ -1,4 +1,4 @@
-// ─── Provider Configs ────────────────────────────────────────────────────
+// ─── AI Provider Configs ─────────────────────────────────────────────────────
 export const PROVIDER_CONFIGS = {
   anthropic: {
     label: 'Anthropic',
@@ -44,10 +44,55 @@ export const PROVIDER_CONFIGS = {
   },
 };
 
+// ─── Search Provider Configs ──────────────────────────────────────────────────
+export const SEARCH_PROVIDER_CONFIGS = {
+  tavily: {
+    label: 'Tavily',
+    proxyPath: '/api/proxy/tavily',
+    baseUrl: 'https://api.tavily.com',
+    placeholder: 'tvly-…',
+    docsUrl: 'app.tavily.com',
+    icon: '🔍',
+    color: '#0f766e',
+    desc: 'Best for AI agents — 1k free/mo',
+  },
+  brave: {
+    label: 'Brave Search',
+    proxyPath: '/api/proxy/brave',
+    baseUrl: 'https://api.search.brave.com',
+    placeholder: 'BSAv…',
+    docsUrl: 'api.search.brave.com',
+    icon: '🦁',
+    color: '#fb923c',
+    desc: '2k free queries/mo',
+  },
+  serper: {
+    label: 'Serper',
+    proxyPath: '/api/proxy/serper',
+    baseUrl: 'https://google.serper.dev',
+    placeholder: 'xxxxxxxx-…',
+    docsUrl: 'serper.dev',
+    icon: '🔎',
+    color: '#4f46e5',
+    desc: 'Google results — 2.5k free',
+  },
+  exa: {
+    label: 'Exa',
+    proxyPath: '/api/proxy/exa',
+    baseUrl: 'https://api.exa.ai',
+    placeholder: 'exa-…',
+    docsUrl: 'exa.ai',
+    icon: '✦',
+    color: '#7c3aed',
+    desc: 'Neural search — 1k free/mo',
+  },
+};
+
 const SETTINGS_KEY = 'devo_settings';
 const PIPELINES_KEY = 'devo_pipelines';
+const STATE_KEY = 'devo_state';
 
-// ─── Settings CRUD ──────────────────────────────────────────────────────
+// ─── Settings CRUD ────────────────────────────────────────────────────────────
 export function getSettings() {
   try {
     return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
@@ -60,7 +105,26 @@ export function saveSettings(settings) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 }
 
-// ─── Saved Pipelines ────────────────────────────────────────────────────
+// ─── Pipeline State Persistence ───────────────────────────────────────────────
+export function loadPipelineState() {
+  try {
+    return JSON.parse(localStorage.getItem(STATE_KEY) || 'null');
+  } catch {
+    return null;
+  }
+}
+
+export function savePipelineState(state) {
+  try {
+    localStorage.setItem(STATE_KEY, JSON.stringify(state));
+  } catch { /* storage full */ }
+}
+
+export function clearPipelineState() {
+  localStorage.removeItem(STATE_KEY);
+}
+
+// ─── Saved Pipelines ──────────────────────────────────────────────────────────
 export function getSavedPipelines() {
   try {
     return JSON.parse(localStorage.getItem(PIPELINES_KEY) || '[]');

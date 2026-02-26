@@ -1,6 +1,7 @@
 import { callModel } from './api.js';
 import { NODE_TEMPLATES, autoSelectModel } from './models.js';
 import { classifyError, getFallbackChain, MAX_HEAL_ATTEMPTS } from './selfheal.js';
+import { searchWeb, formatSearchResults } from './search.js';
 
 /**
  * Topological sort of nodes respecting edges.
@@ -9,10 +10,7 @@ import { classifyError, getFallbackChain, MAX_HEAL_ATTEMPTS } from './selfheal.j
 export function topologicalLevels(nodeIds, edges) {
   const inDeg = {};
   const adj = {};
-  nodeIds.forEach((id) => {
-    inDeg[id] = 0;
-    adj[id] = [];
-  });
+  nodeIds.forEach((id) => { inDeg[id] = 0; adj[id] = []; });
   edges.forEach(([from, to]) => {
     if (adj[from] !== undefined && inDeg[to] !== undefined) {
       adj[from].push(to);
@@ -38,10 +36,7 @@ export function topologicalLevels(nodeIds, edges) {
   }
 
   // Handle any remaining (cycle detection fallback)
-  nodeIds
-    .filter((id) => !visited.has(id))
-    .forEach((id) => levels.push([id]));
-
+  nodeIds.filter((id) => !visited.has(id)).forEach((id) => levels.push([id]));
   return levels;
 }
 
@@ -79,45 +74,112 @@ export function computeLayout(nodeIds, edges) {
 }
 
 /**
- * Build the prompt for a node, injecting upstream context.
+ * Resolve the NODE_TEMPLATE for a node — handles both legacy (id===templateId) and new (unique id + templateId).
  */
-function buildNodePrompt(node, projectDesc, upstreamOutputs, edges) {
-  const template = NODE_TEMPLATES.find((t) => t.id === node.templateId);
+function resolveTemplate(node) {
+  return NODE_TEMPLATES.find((t) => t.id === (node?.templateId || node?.id));
+}
+
+/**
+ * Build the prompt for a node, injecting upstream context + optional web search results.
+ */
+async function buildNodePrompt(node, projectDesc, upstreamOutputs, edges, signal) {
+  const template = resolveTemplate(node);
   if (!template) return { system: '', user: projectDesc };
 
   // Gather upstream outputs
-  const upstreamIds = edges
-    .filter(([, to]) => to === node.id)
-    .map(([from]) => from);
-
+  const upstreamIds = edges.filter(([, to]) => to === node.id).map(([from]) => from);
   let contextBlock = '';
   for (const uid of upstreamIds) {
     if (upstreamOutputs[uid]) {
-      const uTemplate = NODE_TEMPLATES.find((t) => t.id === uid);
+      const upNode = { id: uid, templateId: uid };
+      const uTemplate = resolveTemplate(upNode);
       contextBlock += `\n\n--- ${uTemplate?.label || uid} Output ---\n${upstreamOutputs[uid]}`;
     }
   }
 
+  // Web search injection for search-enabled nodes
+  let searchBlock = '';
+  if (template.webSearch) {
+    const searchQuery = `${projectDesc} ${template.label} best practices`;
+    try {
+      const { results, error } = await searchWeb(searchQuery, signal);
+      if (results.length > 0) {
+        searchBlock = `\n\n--- Web Search Results ---\n${formatSearchResults(results, searchQuery)}`;
+      } else if (error) {
+        searchBlock = `\n\n[Web search unavailable: ${error}]`;
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') throw err;
+    }
+  }
+
   const system = node.customPrompt || template.systemPrompt;
-  const user = contextBlock
-    ? `PROJECT DESCRIPTION:\n${projectDesc}\n\nUPSTREAM CONTEXT:${contextBlock}`
-    : `PROJECT DESCRIPTION:\n${projectDesc}`;
+  let user = `PROJECT DESCRIPTION:\n${projectDesc}`;
+  if (searchBlock) user += `\n\nWEB RESEARCH:${searchBlock}`;
+  if (contextBlock) user += `\n\nUPSTREAM CONTEXT:${contextBlock}`;
 
   return { system, user };
 }
 
 /**
+ * Run a single node with self-heal support. Used by both the main pipeline and the retry feature.
+ */
+async function runNode({ node, nodes, edges, projectDesc, outputs, signal, onStatusChange, onOutput, onLog, onChunk }) {
+  const template = resolveTemplate(node);
+  const modelId = node.model || autoSelectModel(template?.modelTier || 'mid');
+  const { system, user } = await buildNodePrompt(node, projectDesc, outputs, edges, signal);
+
+  const streamCallback = onChunk ? (chunk) => onChunk(node.id, chunk) : null;
+
+  try {
+    const result = await callModel(system, user, modelId, signal, streamCallback);
+    outputs[node.id] = result;
+    onOutput(node.id, result);
+    onStatusChange(node.id, 'done');
+    onLog(`✓ ${template?.label || node.id} complete`);
+    return { healed: false, modelUsed: modelId };
+  } catch (err) {
+    if (err.name === 'AbortError') throw err;
+
+    // ── Self-Heal Engine ──────────────────────────────────────────────────────
+    const errorType = classifyError(err.message);
+    const fallbacks = getFallbackChain(modelId, errorType).slice(0, MAX_HEAL_ATTEMPTS);
+
+    for (const fallbackModel of fallbacks) {
+      if (signal?.aborted) throw new DOMException('Pipeline aborted', 'AbortError');
+      onStatusChange(node.id, 'healing');
+      onLog(`🔄 ${template?.label || node.id} → trying ${fallbackModel.label} (${errorType} error on ${modelId})`);
+
+      try {
+        // Healing uses non-streaming to simplify error recovery
+        const result = await callModel(system, user, fallbackModel.id, signal, null);
+        outputs[node.id] = result;
+        onOutput(node.id, result);
+        onStatusChange(node.id, 'done');
+        onLog(`✓ ${template?.label || node.id} healed via ${fallbackModel.label}`);
+        return { healed: true, modelUsed: fallbackModel.id };
+      } catch (healErr) {
+        if (healErr.name === 'AbortError') throw healErr;
+        const healType = classifyError(healErr.message);
+        onLog(`✗ ${fallbackModel.label} failed (${healType}): ${healErr.message.slice(0, 120)}`);
+      }
+    }
+    // ── End Self-Heal ─────────────────────────────────────────────────────────
+
+    const summary = `ERROR: ${err.message}`;
+    outputs[node.id] = summary;
+    onOutput(node.id, summary);
+    onStatusChange(node.id, 'error');
+    onLog(`✗ ${template?.label || node.id} — all recovery attempts exhausted`);
+    return { healed: false, modelUsed: null, failed: true };
+  }
+}
+
+/**
  * Execute the full pipeline.
  *
- * @param {Object} params
- * @param {Array} params.nodes - Pipeline nodes [{id, templateId, model, customPrompt}]
- * @param {Array} params.edges - Dependency edges [[fromId, toId], ...]
- * @param {string} params.projectDesc - The user's project description
- * @param {string} params.mode - 'dag' | 'parallel' | 'sequential'
- * @param {AbortSignal} params.signal - Abort signal
- * @param {Function} params.onStatusChange - (nodeId, status) => void
- * @param {Function} params.onOutput - (nodeId, output) => void
- * @param {Function} params.onLog - (message) => void
+ * Returns { outputs, modelsUsed }
  */
 export async function executePipeline({
   nodes,
@@ -128,40 +190,34 @@ export async function executePipeline({
   onStatusChange,
   onOutput,
   onLog,
+  onChunk,
 }) {
   const outputs = {};
-  const failedNodes = new Set(); // tracks errored + skipped nodes for propagation
+  const modelsUsed = {};
+  const failedNodes = new Set();
 
-  // Determine execution order based on mode
-  let executionLevels;
   const nodeIds = nodes.map((n) => n.id);
 
+  let executionLevels;
   if (mode === 'parallel') {
-    // All nodes in a single level — fire simultaneously
     executionLevels = [nodeIds];
   } else if (mode === 'sequential') {
-    // Each node in its own level — strict serial
     const sorted = topologicalLevels(nodeIds, edges).flat();
     executionLevels = sorted.map((id) => [id]);
   } else {
-    // DAG mode — respect dependency graph, parallelize within levels
     executionLevels = topologicalLevels(nodeIds, edges);
   }
 
-  // Set all nodes to waiting
   nodes.forEach((n) => onStatusChange(n.id, 'waiting'));
 
   for (const level of executionLevels) {
     if (signal?.aborted) throw new DOMException('Pipeline aborted', 'AbortError');
 
-    // In DAG/sequential modes: skip nodes whose upstream dependency failed
     const skipped = [];
     const runnable = [];
     for (const nodeId of level) {
       if (mode !== 'parallel') {
-        const upstreamDeps = edges
-          .filter(([, to]) => to === nodeId)
-          .map(([from]) => from);
+        const upstreamDeps = edges.filter(([, to]) => to === nodeId).map(([from]) => from);
         if (upstreamDeps.some((id) => failedNodes.has(id))) {
           skipped.push(nodeId);
           continue;
@@ -170,10 +226,10 @@ export async function executePipeline({
       runnable.push(nodeId);
     }
 
-    // Mark skipped nodes and propagate failure
     for (const nodeId of skipped) {
       failedNodes.add(nodeId);
-      const template = NODE_TEMPLATES.find((t) => t.id === nodeId);
+      const node = nodes.find((n) => n.id === nodeId);
+      const template = resolveTemplate(node || { id: nodeId });
       onStatusChange(nodeId, 'skipped');
       onLog(`⊘ ${template?.label || nodeId} skipped (upstream failed)`);
     }
@@ -181,69 +237,28 @@ export async function executePipeline({
     if (runnable.length === 0) continue;
 
     const parallelLabel = runnable.length > 1 ? ' (parallel)' : '';
-    const names = runnable
-      .map((id) => NODE_TEMPLATES.find((t) => t.id === id)?.label || id)
-      .join(', ');
+    const names = runnable.map((id) => {
+      const node = nodes.find((n) => n.id === id);
+      return resolveTemplate(node || { id })?.label || id;
+    }).join(', ');
     onLog(`▶ Running: ${names}${parallelLabel}`);
 
-    // Mark running
     runnable.forEach((id) => onStatusChange(id, 'running'));
 
-    // Execute all runnable nodes in this level concurrently
     const promises = runnable.map(async (nodeId) => {
       const node = nodes.find((n) => n.id === nodeId);
       if (!node) return;
 
-      const template = NODE_TEMPLATES.find((t) => t.id === node.templateId);
-      const modelId = node.model || autoSelectModel(template?.modelTier || 'mid');
-      const { system, user } = buildNodePrompt(node, projectDesc, outputs, edges);
+      const result = await runNode({
+        node, nodes, edges, projectDesc, outputs, signal,
+        onStatusChange, onOutput, onLog, onChunk,
+      });
 
-      try {
-        const result = await callModel(system, user, modelId, signal);
-        outputs[nodeId] = result;
-        onOutput(nodeId, result);
-        onStatusChange(nodeId, 'done');
-        onLog(`✓ ${template?.label || nodeId} complete`);
-      } catch (err) {
-        if (err.name === 'AbortError') throw err;
-
-        // ── Self-Heal Engine ────────────────────────────────────────────
-        // Classify the failure, find fallback models, and retry before
-        // permanently marking this node (and its downstream) as failed.
-        const errorType = classifyError(err.message);
-        const fallbacks = getFallbackChain(modelId, errorType).slice(0, MAX_HEAL_ATTEMPTS);
-        let healed = false;
-
-        for (const fallbackModel of fallbacks) {
-          if (signal?.aborted) throw new DOMException('Pipeline aborted', 'AbortError');
-
-          onStatusChange(nodeId, 'healing');
-          onLog(`🔄 ${template?.label || nodeId} → trying ${fallbackModel.label} (${errorType} error on ${modelId})`);
-
-          try {
-            const result = await callModel(system, user, fallbackModel.id, signal);
-            outputs[nodeId] = result;
-            onOutput(nodeId, result);
-            onStatusChange(nodeId, 'done');
-            onLog(`✓ ${template?.label || nodeId} healed via ${fallbackModel.label}`);
-            healed = true;
-            break;
-          } catch (healErr) {
-            if (healErr.name === 'AbortError') throw healErr;
-            const healType = classifyError(healErr.message);
-            onLog(`✗ ${fallbackModel.label} failed (${healType}): ${healErr.message.slice(0, 120)}`);
-          }
-        }
-
-        if (!healed) {
-          failedNodes.add(nodeId);
-          const summary = `ERROR: ${err.message}`;
-          outputs[nodeId] = summary;
-          onOutput(nodeId, summary);
-          onStatusChange(nodeId, 'error');
-          onLog(`✗ ${template?.label || nodeId} — all recovery attempts exhausted`);
-        }
-        // ── End Self-Heal ───────────────────────────────────────────────
+      if (result.failed) {
+        failedNodes.add(nodeId);
+      }
+      if (result.modelUsed) {
+        modelsUsed[nodeId] = result.modelUsed;
       }
     });
 
@@ -251,5 +266,34 @@ export async function executePipeline({
   }
 
   onLog('🏁 Pipeline finished — all nodes complete');
-  return outputs;
+  return { outputs, modelsUsed };
+}
+
+/**
+ * Retry (regenerate) a single node with its current upstream context.
+ * Supports self-heal and streaming.
+ */
+export async function retrySingleNode({
+  node,
+  nodes,
+  edges,
+  projectDesc,
+  currentOutputs,
+  signal,
+  onStatusChange,
+  onOutput,
+  onLog,
+  onChunk,
+}) {
+  onStatusChange(node.id, 'running');
+  onLog(`↺ Regenerating: ${resolveTemplate(node)?.label || node.id}`);
+
+  const outputs = { ...currentOutputs };
+
+  const result = await runNode({
+    node, nodes, edges, projectDesc, outputs, signal,
+    onStatusChange, onOutput, onLog, onChunk,
+  });
+
+  return result;
 }
