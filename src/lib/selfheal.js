@@ -32,6 +32,17 @@ export function classifyError(message) {
     msg.includes('service unavailable') ||
     msg.includes('server error')
   ) return 'server_error';
+  if (
+    msg.includes('timeout') ||
+    msg.includes('timed out') ||
+    msg.includes('deadline')
+  ) return 'timeout';
+  if (
+    msg.includes('econnrefused') ||
+    msg.includes('network') ||
+    msg.includes('unreachable') ||
+    msg.includes('fetch failed')
+  ) return 'unavailable';
   return 'unknown';
 }
 

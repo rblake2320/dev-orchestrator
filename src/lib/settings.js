@@ -148,3 +148,19 @@ export function deleteSavedPipeline(id) {
   const existing = getSavedPipelines().filter((p) => p.id !== id);
   localStorage.setItem(PIPELINES_KEY, JSON.stringify(existing));
 }
+
+// ─── Agent Config Persistence ─────────────────────────────────────────────────
+const AGENTS_KEY = 'devo_agents';
+
+export function getAgentConfigs() {
+  try { return JSON.parse(localStorage.getItem(AGENTS_KEY) || '[]'); }
+  catch { return []; }
+}
+
+export function saveAgentConfigs(agents) {
+  localStorage.setItem(AGENTS_KEY, JSON.stringify(agents));
+}
+
+export function getAgentById(id) {
+  return getAgentConfigs().find((a) => a.id === id) || null;
+}

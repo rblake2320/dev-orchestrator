@@ -89,6 +89,12 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           rewrite: (p) => p.replace(/^\/api\/proxy\/exa/, ''),
         },
+        // ── Agent bridge (OpenClaw HTTP bridge on port 9000) ────────────────
+        '/api/proxy/agent-bridge': {
+          target: 'http://localhost:9000',
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/api\/proxy\/agent-bridge/, ''),
+        },
       },
     },
   };

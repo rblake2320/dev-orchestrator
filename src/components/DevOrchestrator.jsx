@@ -3,8 +3,9 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { NODE_TEMPLATES, MODEL_OPTIONS } from '../lib/models';
 import { executePipeline, retrySingleNode } from '../lib/pipeline';
-import { loadPipelineState, savePipelineState, clearPipelineState } from '../lib/settings';
+import { loadPipelineState, savePipelineState, clearPipelineState, getAgentConfigs } from '../lib/settings';
 import { optimizePipeline, autoFixPipeline, getOptimizerModel } from '../lib/optimize';
+import { testAgent } from '../lib/agentCall';
 import Canvas from './Canvas';
 import NodeInspector from './NodeInspector';
 import TemplateSelector from './TemplateSelector';
@@ -179,6 +180,10 @@ export default function DevOrchestrator() {
   const [optimizeBanner, setOptimizeBanner] = useState(null); // { type: 'optimize'|'autofix', result }
   const optimizeAbortRef = useRef(null);
 
+  // ── Agent state ───────────────────────────────────────────────────────────
+  const [agents, setAgents] = useState(() => getAgentConfigs());
+  const [agentStatuses, setAgentStatuses] = useState({}); // agentId → 'online'|'offline'
+
   // ── Persist pipeline state to localStorage ────────────────────────────────
   useEffect(() => {
     const saved = loadPipelineState();
@@ -196,6 +201,16 @@ export default function DevOrchestrator() {
       savePipelineState({ projectDesc, nodes, edges, execMode });
     }
   }, [projectDesc, nodes, edges, execMode, showTemplates]);
+
+  // ── Agent health check on mount ───────────────────────────────────────────
+  useEffect(() => {
+    const currentAgents = getAgentConfigs();
+    if (currentAgents.length === 0) return;
+    currentAgents.forEach(async (agent) => {
+      const ok = await testAgent(agent).catch(() => false);
+      setAgentStatuses((prev) => ({ ...prev, [agent.id]: ok ? 'online' : 'offline' }));
+    });
+  }, []);
 
   // ── Keyboard shortcut: Ctrl/Cmd + Enter to run ────────────────────────────
   useEffect(() => {
@@ -237,7 +252,7 @@ export default function DevOrchestrator() {
   // ── Node CRUD ─────────────────────────────────────────────────────────────
   const addNode = useCallback((templateId) => {
     const id = makeNodeId(templateId);
-    setNodes((prev) => [...prev, { id, templateId, model: null, customPrompt: '', customLabel: null }]);
+    setNodes((prev) => [...prev, { id, templateId, model: null, customPrompt: '', customLabel: null, agentId: null }]);
     setShowNodePicker(false);
   }, []);
 
@@ -250,6 +265,7 @@ export default function DevOrchestrator() {
   const updateNodeModel  = useCallback((nodeId, modelId) => setNodes((prev) => prev.map((n) => n.id === nodeId ? { ...n, model: modelId } : n)), []);
   const updateNodePrompt = useCallback((nodeId, p)       => setNodes((prev) => prev.map((n) => n.id === nodeId ? { ...n, customPrompt: p } : n)), []);
   const updateNodeLabel  = useCallback((nodeId, label)   => setNodes((prev) => prev.map((n) => n.id === nodeId ? { ...n, customLabel: label || null } : n)), []);
+  const updateNodeAgent  = useCallback((nodeId, agentId) => setNodes((prev) => prev.map((n) => n.id === nodeId ? { ...n, agentId: agentId || null } : n)), []);
 
   const toggleEdge = useCallback((fromId, toId) => {
     setEdges((prev) => {
@@ -524,7 +540,7 @@ export default function DevOrchestrator() {
         </div>
       </header>
 
-      {showSettings && <Settings onClose={() => setShowSettings(false)} />}
+      {showSettings && <Settings onClose={() => { setShowSettings(false); setAgents(getAgentConfigs()); }} />}
 
       <div className="flex" style={{ height: 'calc(100vh - 57px)' }}>
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -709,6 +725,7 @@ export default function DevOrchestrator() {
                       edges={edges}
                       selectedNode={selectedNode}
                       nodeStatuses={nodeStatuses}
+                      agents={agents}
                       onSelectNode={setSelectedNode}
                     />
                     {selectedNodeData && (
@@ -719,7 +736,10 @@ export default function DevOrchestrator() {
                         outputs={outputs}
                         nodeStatuses={nodeStatuses}
                         modelsUsed={modelsUsed}
+                        agents={agents}
+                        agentStatuses={agentStatuses}
                         onUpdateModel={updateNodeModel}
+                        onUpdateAgent={updateNodeAgent}
                         onToggleEdge={toggleEdge}
                         onRemoveNode={removeNode}
                         onUpdatePrompt={updateNodePrompt}

@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import { NODE_TEMPLATES, MODEL_OPTIONS } from '../lib/models';
 import { computeLayout } from '../lib/pipeline';
+import { AGENT_PROTOCOLS } from '../lib/agents';
 
 // ─── Edge Line (Bézier curve with arrow) ─────────────────────────────────────
 function EdgeLine({ from, to, positions, cardW, cardH }) {
@@ -23,13 +24,17 @@ function EdgeLine({ from, to, positions, cardW, cardH }) {
 }
 
 // ─── Node Card (SVG group) ────────────────────────────────────────────────────
-function NodeCard({ node, pos, w, h, isSelected, status, onClick }) {
+function NodeCard({ node, pos, w, h, isSelected, status, agents, onClick }) {
   const template = NODE_TEMPLATES.find((t) => t.id === (node.templateId || node.id)) || {};
   const model = node.model ? MODEL_OPTIONS.find((m) => m.id === node.model) : null;
+  const agent = node.agentId ? (agents || []).find((a) => a.id === node.agentId) : null;
+  const agentProto = agent ? AGENT_PROTOCOLS[agent.protocol] : null;
+
+  const agentRunColor = agentProto?.color || '#6366f1';
 
   const statusColors = {
     idle:    'rgba(55,65,81,0.6)',
-    running: template.color || '#6366f1',
+    running: agent ? agentRunColor : (template.color || '#6366f1'),
     healing: '#f59e0b',
     done:    '#10b981',
     waiting: '#f59e0b',
@@ -80,9 +85,9 @@ function NodeCard({ node, pos, w, h, isSelected, status, onClick }) {
         <text x={pos.x + 38} y={pos.y + 42} fontSize="9" fill="#0ea5e9" fontFamily="sans-serif">🌐 web</text>
       )}
 
-      {/* Model label */}
-      <text x={pos.x + 14} y={pos.y + 56} fontSize="10" fill="#6b7280" fontFamily="'DM Sans', sans-serif">
-        {model?.label || 'auto'}
+      {/* Agent or model label */}
+      <text x={pos.x + 14} y={pos.y + 56} fontSize="10" fill={agent ? (agentProto?.color || '#6b7280') : '#6b7280'} fontFamily="'DM Sans', sans-serif">
+        {agent ? `${agentProto?.icon || '🤖'} ${agent.label.length > 14 ? agent.label.slice(0, 13) + '…' : agent.label}` : (model?.label || 'auto')}
       </text>
 
       {/* Status icons */}
@@ -111,7 +116,7 @@ function NodeCard({ node, pos, w, h, isSelected, status, onClick }) {
 }
 
 // ─── Canvas ───────────────────────────────────────────────────────────────────
-export default function Canvas({ nodes, edges, selectedNode, nodeStatuses, onSelectNode }) {
+export default function Canvas({ nodes, edges, selectedNode, nodeStatuses, agents, onSelectNode }) {
   const layout = useMemo(
     () => computeLayout(nodes.map((n) => n.id), edges),
     [nodes, edges]
@@ -239,6 +244,7 @@ export default function Canvas({ nodes, edges, selectedNode, nodeStatuses, onSel
                   h={layout.CARD_H}
                   isSelected={selectedNode === n.id}
                   status={nodeStatuses[n.id] || 'idle'}
+                  agents={agents}
                   onClick={() => onSelectNode(selectedNode === n.id ? null : n.id)}
                 />
               </g>

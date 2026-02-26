@@ -2,6 +2,8 @@ import { callModel } from './api.js';
 import { NODE_TEMPLATES, autoSelectModel } from './models.js';
 import { classifyError, getFallbackChain, MAX_HEAL_ATTEMPTS } from './selfheal.js';
 import { searchWeb, formatSearchResults } from './search.js';
+import { getAgentById } from './settings.js';
+import { callAgent, buildAgentPayload, sanitizeAgentOutput } from './agentCall.js';
 
 /**
  * Topological sort of nodes respecting edges.
@@ -94,7 +96,7 @@ async function buildNodePrompt(node, projectDesc, upstreamOutputs, edges, signal
     if (upstreamOutputs[uid]) {
       const upNode = { id: uid, templateId: uid };
       const uTemplate = resolveTemplate(upNode);
-      contextBlock += `\n\n--- ${uTemplate?.label || uid} Output ---\n${upstreamOutputs[uid]}`;
+      contextBlock += `\n\n[BEGIN UPSTREAM DATA: ${uTemplate?.label || uid}]\n${upstreamOutputs[uid]}\n[END UPSTREAM DATA]`;
     }
   }
 
@@ -128,6 +130,28 @@ async function buildNodePrompt(node, projectDesc, upstreamOutputs, edges, signal
 async function runNode({ node, nodes, edges, projectDesc, outputs, signal, onStatusChange, onOutput, onLog, onChunk }) {
   const template = resolveTemplate(node);
   const modelId = node.model || autoSelectModel(template?.modelTier || 'mid');
+
+  // ── Agent mode (if node has an agentId assigned) ──────────────────────────
+  const agentConfig = node.agentId ? getAgentById(node.agentId) : null;
+  if (agentConfig) {
+    const payload = buildAgentPayload(node, nodes, edges, projectDesc, outputs);
+    const progressCb = (msg) => onLog(`⏳ ${template?.label || node.id}: ${msg}`);
+    try {
+      const raw = await callAgent(agentConfig, payload.task, JSON.stringify(payload.upstreamContext), signal, progressCb);
+      const result = sanitizeAgentOutput(raw);
+      outputs[node.id] = result;
+      onOutput(node.id, result);
+      onStatusChange(node.id, 'done');
+      onLog(`✓ ${template?.label || node.id} complete (via agent: ${agentConfig.label})`);
+      return { healed: false, agentUsed: agentConfig.id };
+    } catch (err) {
+      if (err.name === 'AbortError') throw err;
+      onLog(`✗ Agent "${agentConfig.label}" failed: ${err.message.slice(0, 120)} — falling back to model`);
+      // Fall through to callModel() self-heal chain
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   const { system, user } = await buildNodePrompt(node, projectDesc, outputs, edges, signal);
 
   const streamCallback = onChunk ? (chunk) => onChunk(node.id, chunk) : null;

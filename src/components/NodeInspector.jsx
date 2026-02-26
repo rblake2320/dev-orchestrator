@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { NODE_TEMPLATES, MODEL_OPTIONS } from '../lib/models';
+import { AGENT_PROTOCOLS } from '../lib/agents';
 
 export default function NodeInspector({
   node,
@@ -8,7 +9,10 @@ export default function NodeInspector({
   outputs,
   nodeStatuses,
   modelsUsed,
+  agents,
+  agentStatuses,
   onUpdateModel,
+  onUpdateAgent,
   onToggleEdge,
   onRemoveNode,
   onUpdatePrompt,
@@ -21,6 +25,7 @@ export default function NodeInspector({
 
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelDraft, setLabelDraft] = useState(node.customLabel || template.label);
+  const driverMode = node.agentId ? 'agent' : 'model';
 
   const upstreamIds = edges.filter(([, to]) => to === node.id).map(([from]) => from);
   const status = nodeStatuses?.[node.id] || 'idle';
@@ -100,46 +105,99 @@ export default function NodeInspector({
         </button>
       )}
 
-      {/* Model Selector */}
+      {/* Driver Mode Toggle */}
       <section className="mb-5">
-        <label className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold block mb-2">
-          AI Model {!node.model && <span className="text-gray-700 normal-case">(auto)</span>}
-        </label>
-        <div className="flex flex-col gap-1">
-          {/* Auto option */}
-          <button
-            onClick={() => onUpdateModel(node.id, null)}
-            className="px-3 py-2 rounded-lg text-xs text-left flex items-center gap-2 transition-all border"
-            style={{
-              background: !node.model ? '#6366f115' : '#111827',
-              borderColor: !node.model ? '#6366f155' : '#1f2937',
-              color: !node.model ? '#818cf8' : '#9ca3af',
-            }}
-          >
-            <span>✦</span>
-            <span className="font-medium">Auto (recommended)</span>
-            <span className="ml-auto opacity-60 text-[10px]">{template.modelTier}</span>
-          </button>
-          {MODEL_OPTIONS.map((m) => {
-            const active = node.model === m.id;
-            return (
-              <button
-                key={m.id}
-                onClick={() => onUpdateModel(node.id, m.id)}
-                className="px-3 py-2 rounded-lg text-xs text-left flex items-center gap-2 transition-all border"
-                style={{
-                  background: active ? `${m.color}15` : '#111827',
-                  borderColor: active ? `${m.color}55` : '#1f2937',
-                  color: active ? m.color : '#9ca3af',
-                }}
-              >
-                <span>{m.badge}</span>
-                <span className="font-medium">{m.label}</span>
-                <span className="ml-auto opacity-60 text-[10px]">{m.tier}</span>
-              </button>
-            );
-          })}
+        <label className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold block mb-2">Driver</label>
+        <div className="flex bg-gray-950 rounded-lg border border-gray-800 overflow-hidden mb-3">
+          {[{ id: 'model', label: '✦ Model' }, { id: 'agent', label: '🤖 Agent' }].map((m) => (
+            <button
+              key={m.id}
+              onClick={() => {
+                if (m.id === 'model') { onUpdateAgent(node.id, null); }
+                else if ((agents || []).length === 0) { /* no agents configured yet */ }
+                else { onUpdateAgent(node.id, (agents || [])[0]?.id || null); }
+              }}
+              className={`flex-1 py-1.5 text-[11px] font-medium transition-all ${driverMode === m.id ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+            >{m.label}</button>
+          ))}
         </div>
+
+        {/* Model list */}
+        {driverMode === 'model' && (
+          <div className="flex flex-col gap-1">
+            <button
+              onClick={() => onUpdateModel(node.id, null)}
+              className="px-3 py-2 rounded-lg text-xs text-left flex items-center gap-2 transition-all border"
+              style={{
+                background: !node.model ? '#6366f115' : '#111827',
+                borderColor: !node.model ? '#6366f155' : '#1f2937',
+                color: !node.model ? '#818cf8' : '#9ca3af',
+              }}
+            >
+              <span>✦</span>
+              <span className="font-medium">Auto (recommended)</span>
+              <span className="ml-auto opacity-60 text-[10px]">{template.modelTier}</span>
+            </button>
+            {MODEL_OPTIONS.map((m) => {
+              const active = node.model === m.id;
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => onUpdateModel(node.id, m.id)}
+                  className="px-3 py-2 rounded-lg text-xs text-left flex items-center gap-2 transition-all border"
+                  style={{
+                    background: active ? `${m.color}15` : '#111827',
+                    borderColor: active ? `${m.color}55` : '#1f2937',
+                    color: active ? m.color : '#9ca3af',
+                  }}
+                >
+                  <span>{m.badge}</span>
+                  <span className="font-medium">{m.label}</span>
+                  <span className="ml-auto opacity-60 text-[10px]">{m.tier}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Agent list */}
+        {driverMode === 'agent' && (
+          <div className="flex flex-col gap-1">
+            {(agents || []).length === 0 ? (
+              <p className="text-[11px] text-gray-600 px-3 py-3 bg-gray-900 rounded-lg border border-gray-800">
+                No agents configured. Add one in <strong className="text-gray-400">⚙️ Settings → Agents</strong>.
+              </p>
+            ) : (
+              (agents || []).map((a) => {
+                const proto = AGENT_PROTOCOLS[a.protocol];
+                const active = node.agentId === a.id;
+                const status = agentStatuses?.[a.id];
+                return (
+                  <button
+                    key={a.id}
+                    onClick={() => onUpdateAgent(node.id, a.id)}
+                    className="px-3 py-2 rounded-lg text-xs text-left flex items-center gap-2 transition-all border"
+                    style={{
+                      background: active ? `${proto?.color || '#6366f1'}15` : '#111827',
+                      borderColor: active ? `${proto?.color || '#6366f1'}55` : '#1f2937',
+                      color: active ? (proto?.color || '#818cf8') : '#9ca3af',
+                    }}
+                  >
+                    <span>{proto?.icon || '🤖'}</span>
+                    <span className="font-medium">{a.label}</span>
+                    <span className="ml-auto flex items-center gap-1.5">
+                      <span
+                        className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                        style={{ background: status === 'online' ? '#10b981' : status === 'offline' ? '#ef4444' : '#4b5563' }}
+                      />
+                      <span className="opacity-60 text-[10px]">{proto?.label || a.protocol}</span>
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        )}
       </section>
 
       {/* Dependency Checkboxes */}
