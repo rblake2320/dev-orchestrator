@@ -32,6 +32,7 @@ function NodeCard({ node, pos, w, h, isSelected, status, onClick }) {
   const statusColors = {
     idle: 'rgba(55,65,81,0.6)',
     running: template.color || '#6366f1',
+    healing: '#f59e0b',
     done: '#10b981',
     waiting: '#f59e0b',
     error: '#ef4444',
@@ -44,11 +45,13 @@ function NodeCard({ node, pos, w, h, isSelected, status, onClick }) {
       ? '#064e3b22'
       : status === 'running'
         ? `${template.color}11`
-        : status === 'error'
-          ? '#7f1d1d22'
-          : status === 'skipped'
-            ? '#1f293722'
-            : '#111827';
+        : status === 'healing'
+          ? '#78350f22'
+          : status === 'error'
+            ? '#7f1d1d22'
+            : status === 'skipped'
+              ? '#1f293722'
+              : '#111827';
 
   return (
     <g onClick={onClick} style={{ cursor: 'pointer' }}>
@@ -65,21 +68,14 @@ function NodeCard({ node, pos, w, h, isSelected, status, onClick }) {
       />
       {/* Progress bar when running */}
       {status === 'running' && (
-        <rect
-          x={pos.x}
-          y={pos.y + h - 4}
-          width={0}
-          height={3}
-          rx={1.5}
-          fill={template.color}
-        >
-          <animate
-            attributeName="width"
-            from="0"
-            to={w}
-            dur="2.5s"
-            repeatCount="indefinite"
-          />
+        <rect x={pos.x} y={pos.y + h - 4} width={0} height={3} rx={1.5} fill={template.color}>
+          <animate attributeName="width" from="0" to={w} dur="2.5s" repeatCount="indefinite" />
+        </rect>
+      )}
+      {/* Healing progress bar — amber, faster pulse */}
+      {status === 'healing' && (
+        <rect x={pos.x} y={pos.y + h - 4} width={0} height={3} rx={1.5} fill="#f59e0b">
+          <animate attributeName="width" from="0" to={w} dur="1.5s" repeatCount="indefinite" />
         </rect>
       )}
       {/* Icon + label */}
@@ -121,6 +117,27 @@ function NodeCard({ node, pos, w, h, isSelected, status, onClick }) {
         <text x={pos.x + w - 24} y={pos.y + 28} fontSize="14" fill="#4b5563">
           ⊘
         </text>
+      )}
+      {/* Healing spinner — amber rotating circle */}
+      {status === 'healing' && (
+        <g transform={`translate(${pos.x + w - 24}, ${pos.y + 20})`}>
+          <circle
+            cx="6" cy="6" r="5"
+            fill="none"
+            stroke="#f59e0b"
+            strokeWidth="2"
+            strokeDasharray="16 6"
+          >
+            <animateTransform
+              attributeName="transform"
+              type="rotate"
+              from="0 6 6"
+              to="360 6 6"
+              dur="1s"
+              repeatCount="indefinite"
+            />
+          </circle>
+        </g>
       )}
       {status === 'running' && (
         <g transform={`translate(${pos.x + w - 24}, ${pos.y + 20})`}>

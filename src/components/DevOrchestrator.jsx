@@ -110,9 +110,11 @@ export default function DevOrchestrator() {
         signal: controller.signal,
         onStatusChange: (nodeId, status) => {
           setNodeStatuses((prev) => ({ ...prev, [nodeId]: status }));
+          const tmpl = NODE_TEMPLATES.find((t) => t.id === nodeId);
           if (status === 'running') {
-            const tmpl = NODE_TEMPLATES.find((t) => t.id === nodeId);
             setRunPhase(`Generating: ${tmpl?.label || nodeId}`);
+          } else if (status === 'healing') {
+            setRunPhase(`🔄 Healing: ${tmpl?.label || nodeId}`);
           }
         },
         onOutput: (nodeId, output) => {
@@ -310,21 +312,21 @@ export default function DevOrchestrator() {
                 </div>
               </div>
 
-              {/* Status bar when running */}
+              {/* Status bar when running — amber during self-heal, indigo otherwise */}
               {isRunning && (
-                <div className="px-4 py-1.5 bg-indigo-950/30 border-b border-indigo-900/30 flex items-center gap-2">
+                <div className={`px-4 py-1.5 border-b flex items-center gap-2 transition-colors ${
+                  runPhase.startsWith('🔄')
+                    ? 'bg-amber-950/30 border-amber-900/30'
+                    : 'bg-indigo-950/30 border-indigo-900/30'
+                }`}>
                   <svg
-                    className="animate-spin h-3 w-3 text-indigo-400"
+                    className={`animate-spin h-3 w-3 ${runPhase.startsWith('🔄') ? 'text-amber-400' : 'text-indigo-400'}`}
                     viewBox="0 0 24 24"
                   >
                     <circle
                       className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
+                      cx="12" cy="12" r="10"
+                      stroke="currentColor" strokeWidth="4" fill="none"
                     />
                     <path
                       className="opacity-75"
@@ -332,7 +334,7 @@ export default function DevOrchestrator() {
                       d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
                     />
                   </svg>
-                  <span className="text-xs text-indigo-300 font-medium">
+                  <span className={`text-xs font-medium ${runPhase.startsWith('🔄') ? 'text-amber-300' : 'text-indigo-300'}`}>
                     {runPhase}
                   </span>
                 </div>
@@ -454,7 +456,11 @@ export default function DevOrchestrator() {
                                 ? 'text-violet-400'
                                 : entry.msg.startsWith('✗')
                                   ? 'text-red-400'
-                                  : 'text-gray-400'
+                                  : entry.msg.startsWith('🔄')
+                                    ? 'text-amber-400'
+                                    : entry.msg.startsWith('⊘')
+                                      ? 'text-gray-600'
+                                      : 'text-gray-400'
                           }`}
                         >
                           <span className="text-gray-600 mr-3">

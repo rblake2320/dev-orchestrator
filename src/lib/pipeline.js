@@ -1,5 +1,6 @@
 import { callModel } from './api.js';
 import { NODE_TEMPLATES, autoSelectModel } from './models.js';
+import { classifyError, getFallbackChain, MAX_HEAL_ATTEMPTS } from './selfheal.js';
 
 /**
  * Topological sort of nodes respecting edges.
@@ -205,11 +206,44 @@ export async function executePipeline({
         onLog(`✓ ${template?.label || nodeId} complete`);
       } catch (err) {
         if (err.name === 'AbortError') throw err;
-        failedNodes.add(nodeId); // propagate to downstream
-        outputs[nodeId] = `ERROR: ${err.message}`;
-        onOutput(nodeId, `ERROR: ${err.message}`);
-        onStatusChange(nodeId, 'error');
-        onLog(`✗ ${template?.label || nodeId} failed: ${err.message}`);
+
+        // ── Self-Heal Engine ────────────────────────────────────────────
+        // Classify the failure, find fallback models, and retry before
+        // permanently marking this node (and its downstream) as failed.
+        const errorType = classifyError(err.message);
+        const fallbacks = getFallbackChain(modelId, errorType).slice(0, MAX_HEAL_ATTEMPTS);
+        let healed = false;
+
+        for (const fallbackModel of fallbacks) {
+          if (signal?.aborted) throw new DOMException('Pipeline aborted', 'AbortError');
+
+          onStatusChange(nodeId, 'healing');
+          onLog(`🔄 ${template?.label || nodeId} → trying ${fallbackModel.label} (${errorType} error on ${modelId})`);
+
+          try {
+            const result = await callModel(system, user, fallbackModel.id, signal);
+            outputs[nodeId] = result;
+            onOutput(nodeId, result);
+            onStatusChange(nodeId, 'done');
+            onLog(`✓ ${template?.label || nodeId} healed via ${fallbackModel.label}`);
+            healed = true;
+            break;
+          } catch (healErr) {
+            if (healErr.name === 'AbortError') throw healErr;
+            const healType = classifyError(healErr.message);
+            onLog(`✗ ${fallbackModel.label} failed (${healType}): ${healErr.message.slice(0, 120)}`);
+          }
+        }
+
+        if (!healed) {
+          failedNodes.add(nodeId);
+          const summary = `ERROR: ${err.message}`;
+          outputs[nodeId] = summary;
+          onOutput(nodeId, summary);
+          onStatusChange(nodeId, 'error');
+          onLog(`✗ ${template?.label || nodeId} — all recovery attempts exhausted`);
+        }
+        // ── End Self-Heal ───────────────────────────────────────────────
       }
     });
 
