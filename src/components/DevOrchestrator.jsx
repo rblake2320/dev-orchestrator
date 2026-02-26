@@ -192,6 +192,7 @@ export default function DevOrchestrator() {
   const [descDraft, setDescDraft] = useState('');
   const [rawMode, setRawMode] = useState({}); // nodeId → bool: show raw vs markdown
   const [showBugReport, setShowBugReport] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const abortRef = useRef(null);
   const runStartRef = useRef(null); // timestamp when current run started
 
@@ -714,6 +715,11 @@ export default function DevOrchestrator() {
             <button onClick={resetAll} className="text-xs px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors">↻ Reset</button>
           )}
           <button
+            onClick={() => setShowHelp(true)}
+            className="text-xs px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors"
+            title="Help & documentation"
+          >❓ Help</button>
+          <button
             onClick={() => setShowBugReport(true)}
             className="text-xs px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors"
             title="Report a bug or give feedback"
@@ -727,6 +733,7 @@ export default function DevOrchestrator() {
       </header>
 
       {showSettings && <Settings onClose={() => { setShowSettings(false); setAgents(getAgentConfigs()); }} />}
+      {showHelp && <Help onClose={() => setShowHelp(false)} />}
       {showBugReport && (
         <BugReport
           nodes={nodes}
@@ -750,6 +757,7 @@ export default function DevOrchestrator() {
               onProjectDescChange={setProjectDesc}
               onSelectTemplate={loadTemplate}
               onStartBlank={() => { setShowTemplates(false); setShowNodePicker(true); }}
+              onShowHelp={() => setShowHelp(true)}
             />
           )}
 
@@ -763,7 +771,6 @@ export default function DevOrchestrator() {
                     { id: 'canvas',  label: '🗺️ Canvas',  ready: true       },
                     { id: 'outputs', label: '📄 Outputs', ready: hasOutputs },
                     { id: 'log',     label: '📜 Log',     ready: hasLog     },
-                    { id: 'help',    label: '❓ Help',    ready: true       },
                   ].map((tab) => (
                     <button
                       key={tab.id}
@@ -1119,8 +1126,6 @@ export default function DevOrchestrator() {
                   </div>
                 )}
 
-                {/* Help */}
-                {activeTab === 'help' && <Help />}
 
               </div>
 

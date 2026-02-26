@@ -5,6 +5,7 @@ export default function TemplateSelector({
   onProjectDescChange,
   onSelectTemplate,
   onStartBlank,
+  onShowHelp,
 }) {
   return (
     <div className="p-8 flex flex-col items-center gap-8 overflow-auto flex-1">
@@ -17,6 +18,12 @@ export default function TemplateSelector({
           Choose a template or start from scratch. Each node is an AI generation
           step — connected by dependency edges, powered by the model you assign.
         </p>
+        <button
+          onClick={onShowHelp}
+          className="mt-3 inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 transition-colors underline underline-offset-2"
+        >
+          ❓ New here? Read how it works
+        </button>
       </div>
 
       {/* Project Description */}

@@ -315,9 +315,9 @@ const SECTIONS = [
   },
 ];
 
-export default function Help() {
+function HelpContent() {
   return (
-    <div className="flex-1 overflow-auto">
+    <>
       {/* Hero */}
       <div className="border-b border-gray-800 bg-gradient-to-br from-indigo-950/40 via-gray-900 to-gray-900 px-8 py-8">
         <div className="max-w-3xl">
@@ -359,6 +359,45 @@ export default function Help() {
           </section>
         ))}
       </div>
+    </>
+  );
+}
+
+/**
+ * Help — renders as a full-screen modal when `onClose` is provided,
+ * or inline (filling its flex parent) when used without props.
+ */
+export default function Help({ onClose }) {
+  if (onClose) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-start justify-center bg-black/75 backdrop-blur-sm overflow-y-auto py-6"
+        onClick={onClose}
+      >
+        <div
+          className="bg-[#0d1117] border border-gray-800 rounded-xl shadow-2xl w-full max-w-3xl mx-4 my-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Modal header */}
+          <div className="flex justify-between items-center px-6 py-3 border-b border-gray-800 sticky top-0 bg-[#0d1117] rounded-t-xl z-10">
+            <span className="text-sm font-semibold text-gray-300">❓ Help &amp; Documentation</span>
+            <button
+              onClick={onClose}
+              className="text-gray-600 hover:text-gray-200 text-xl leading-none transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+          <HelpContent />
+        </div>
+      </div>
+    );
+  }
+
+  // Inline (legacy — tab view)
+  return (
+    <div className="flex-1 overflow-auto">
+      <HelpContent />
     </div>
   );
 }
