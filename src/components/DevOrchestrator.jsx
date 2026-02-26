@@ -3,9 +3,10 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { NODE_TEMPLATES, MODEL_OPTIONS, NODE_TEMPLATE_CATEGORIES } from '../lib/models';
 import { executePipeline, retrySingleNode, executePartialPipeline } from '../lib/pipeline';
-import { loadPipelineState, savePipelineState, clearPipelineState, getAgentConfigs, getStoredOllamaModels } from '../lib/settings';
+import { loadPipelineState, savePipelineState, clearPipelineState, getAgentConfigs, getStoredOllamaModels, saveStoredOllamaModels } from '../lib/settings';
 import { optimizePipeline, autoFixPipeline, getOptimizerModel } from '../lib/optimize';
 import { testAgent } from '../lib/agentCall';
+import { discoverOllamaModels } from '../lib/api';
 import { saveRunRecord, buildRunRecord } from '../lib/runHistory';
 import Canvas from './Canvas';
 import NodeInspector from './NodeInspector';
@@ -253,6 +254,16 @@ export default function DevOrchestrator() {
       const ok = await testAgent(agent).catch(() => false);
       setAgentStatuses((prev) => ({ ...prev, [agent.id]: ok ? 'online' : 'offline' }));
     });
+  }, []);
+
+  // ── Auto-discover Ollama models on mount ──────────────────────────────────
+  useEffect(() => {
+    discoverOllamaModels().then((models) => {
+      if (models.length > 0) {
+        saveStoredOllamaModels(models);
+        setDynamicOllamaModels(models);
+      }
+    }).catch(() => {/* Ollama not running — silent */});
   }, []);
 
   // ── Undo stack for node/edge operations ───────────────────────────────────

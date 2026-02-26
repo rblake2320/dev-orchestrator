@@ -1,3 +1,5 @@
+import { getStoredOllamaModels } from './settings.js';
+
 // ─── Node Templates ───────────────────────────────────────────────────────────
 export const NODE_TEMPLATE_CATEGORIES = [
   { id: 'code',    label: '💻 Code & Architecture' },
@@ -818,6 +820,11 @@ export const MODEL_OPTIONS = [
 
 // Auto-select best available model for a tier
 export function autoSelectModel(tier) {
+  if (tier === 'local') {
+    // Use first actually-installed Ollama model if we have any
+    const storedOllama = getStoredOllamaModels();
+    if (storedOllama.length > 0) return storedOllama[0].id;
+  }
   const priority = { frontier: 'claude-sonnet', mid: 'llama-70b', local: 'ollama-llama' };
   return priority[tier] || 'claude-sonnet';
 }

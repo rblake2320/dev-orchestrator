@@ -1,5 +1,15 @@
-import { PROVIDER_CONFIGS, getSettings } from './settings.js';
+import { PROVIDER_CONFIGS, getSettings, getStoredOllamaModels } from './settings.js';
 import { MODEL_OPTIONS } from './models.js';
+
+// Merged model list: static + any dynamically discovered Ollama models
+function getEffectiveModels() {
+  const storedOllama = getStoredOllamaModels();
+  if (storedOllama.length === 0) return MODEL_OPTIONS;
+  return [
+    ...MODEL_OPTIONS.filter((m) => m.provider !== 'ollama'),
+    ...storedOllama,
+  ];
+}
 
 /**
  * Get request URL and headers for a given provider + API key.
@@ -151,7 +161,7 @@ function parseResponse(data, format) {
  * @returns {Promise<string>}  Full response text
  */
 export async function callModel(systemPrompt, userMessage, modelOptionId, signal, onChunk = null) {
-  const modelDef = MODEL_OPTIONS.find((m) => m.id === modelOptionId);
+  const modelDef = getEffectiveModels().find((m) => m.id === modelOptionId);
   if (!modelDef) throw new Error(`Unknown model: ${modelOptionId}`);
 
   const settings = getSettings();
