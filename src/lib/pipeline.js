@@ -4,6 +4,7 @@ import { classifyError, getFallbackChain, MAX_HEAL_ATTEMPTS } from './selfheal.j
 import { searchWeb, formatSearchResults } from './search.js';
 import { getAgentById } from './settings.js';
 import { callAgent, buildAgentPayload, sanitizeAgentOutput } from './agentCall.js';
+import { generateImages, generateAudio, composeVideo, isMediaOutput, parseMediaOutput } from './mediaApi.js';
 
 /**
  * Topological sort of nodes respecting edges.
@@ -130,6 +131,60 @@ async function buildNodePrompt(node, projectDesc, upstreamOutputs, edges, signal
 async function runNode({ node, nodes, edges, projectDesc, outputs, signal, onStatusChange, onOutput, onLog, onChunk }) {
   const template = resolveTemplate(node);
   const modelId = node.model || autoSelectModel(template?.modelTier || 'mid');
+
+  // ── Media node routing: real image/audio/video generation ─────────────────
+  if (template?.isMediaNode) {
+    onStatusChange(node.id, 'running');
+    const progressCb = (msg) => onLog(`  ${msg}`);
+
+    // Gather all upstream text/media outputs
+    const upstreamIds = edges.filter(([, to]) => to === node.id).map(([from]) => from);
+    const upstreamText = upstreamIds.map(id => outputs[id] || '').join('\n\n');
+
+    // Pull image URLs from upstream media outputs
+    const upstreamImages = upstreamIds
+      .map(id => outputs[id])
+      .filter(o => o && isMediaOutput(o))
+      .flatMap(o => {
+        const m = parseMediaOutput(o);
+        return m?.type === 'images' ? (m.urls || []) : [];
+      });
+
+    // Pull audio URL from upstream media outputs
+    const upstreamAudio = upstreamIds
+      .map(id => outputs[id])
+      .filter(o => o && isMediaOutput(o))
+      .map(o => parseMediaOutput(o))
+      .find(m => m?.type === 'audio')?.url || null;
+
+    try {
+      let result;
+      if (template.mediaType === 'image_gen') {
+        result = await generateImages(upstreamText, progressCb);
+        onLog(`✓ ${template.label} — images generated`);
+      } else if (template.mediaType === 'tts_audio') {
+        result = await generateAudio(upstreamText, progressCb);
+        onLog(`✓ ${template.label} — audio generated`);
+      } else if (template.mediaType === 'video_compose') {
+        if (upstreamImages.length === 0) throw new Error('No images found in upstream nodes. Add a Generate Images node before this one.');
+        result = await composeVideo(upstreamImages, upstreamAudio, progressCb);
+        onLog(`✓ ${template.label} — video composed`);
+      }
+      outputs[node.id] = result;
+      onOutput(node.id, result);
+      onStatusChange(node.id, 'done');
+      return { healed: false, modelUsed: null };
+    } catch (err) {
+      if (err.name === 'AbortError') throw err;
+      const errMsg = `ERROR: ${err.message}\n\nRequires OpenAI API key. Add it in ⚙️ Settings → OpenAI.`;
+      outputs[node.id] = errMsg;
+      onOutput(node.id, errMsg);
+      onStatusChange(node.id, 'error');
+      onLog(`✗ ${template.label} failed: ${err.message}`);
+      return { healed: false, modelUsed: null };
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   // ── Agent mode (if node has an agentId assigned) ──────────────────────────
   const agentConfig = node.agentId ? getAgentById(node.agentId) : null;

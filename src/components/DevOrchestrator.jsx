@@ -14,6 +14,8 @@ import TemplateSelector from './TemplateSelector';
 import Settings from './Settings';
 import Help from './Help';
 import BugReport from './BugReport';
+import MediaViewer from './MediaViewer';
+import { isMediaOutput } from '../lib/mediaApi';
 
 // ─── Unique node ID generator ─────────────────────────────────────────────────
 let _nodeSeq = 0;
@@ -56,6 +58,10 @@ const FILE_MAP = {
   chatbot_design:  { name: 'chatbot-design.md',      ext: 'md'   },
   // Custom
   custom:          { name: 'custom-step.md',         ext: 'md'   },
+  // Real media generation nodes
+  image_gen:       { name: 'generated-images',       ext: 'media' },
+  tts_audio:       { name: 'narration.mp3',          ext: 'media' },
+  video_compose:   { name: 'video.webm',             ext: 'media' },
 };
 
 // ─── Markdown output renderer ─────────────────────────────────────────────────
@@ -1045,8 +1051,10 @@ export default function DevOrchestrator() {
 
                     {/* Project Summary */}
                     {hasOutputs && (() => {
-                      const totalLines = Object.values(outputs).reduce((s, o) => s + o.split('\n').length, 0);
-                      const totalWords = Object.values(outputs).reduce((s, o) => s + o.trim().split(/\s+/).filter(Boolean).length, 0);
+                      const textOutputs = Object.values(outputs).filter(o => !isMediaOutput(o));
+                      const mediaOutputs = Object.values(outputs).filter(o => isMediaOutput(o));
+                      const totalLines = textOutputs.reduce((s, o) => s + o.split('\n').length, 0);
+                      const totalWords = textOutputs.reduce((s, o) => s + o.trim().split(/\s+/).filter(Boolean).length, 0);
                       return (
                         <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden mb-5">
                           <div className="px-4 py-3 border-b border-gray-800 flex items-center gap-2 flex-wrap">
@@ -1055,8 +1063,9 @@ export default function DevOrchestrator() {
                             <span className="text-[10px] text-gray-600 ml-1 truncate max-w-xs">{projectDesc}</span>
                             <div className="ml-auto flex gap-3 text-[10px] text-gray-500 font-mono">
                               <span>{Object.keys(outputs).length} files</span>
-                              <span>{totalLines.toLocaleString()} lines</span>
-                              <span>{totalWords.toLocaleString()} words</span>
+                              {mediaOutputs.length > 0 && <span>{mediaOutputs.length} media files</span>}
+                              {totalLines > 0 && <span>{totalLines.toLocaleString()} lines</span>}
+                              {totalWords > 0 && <span>{totalWords.toLocaleString()} words</span>}
                             </div>
                           </div>
                           <div className="p-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
@@ -1065,8 +1074,12 @@ export default function DevOrchestrator() {
                               const tmpl = NODE_TEMPLATES.find((t) => t.id === (node?.templateId || nodeId));
                               const tid = node?.templateId || nodeId;
                               const isErr = nodeStatuses[nodeId] === 'error' || output.startsWith('ERROR:');
-                              const lines = output.split('\n').length;
+                              const isMedia = isMediaOutput(output);
+                              const lines = isMedia ? 0 : output.split('\n').length;
                               const mapping = FILE_MAP[tid];
+                              const mediaLabel = isMedia ? (() => {
+                                try { const m = JSON.parse(output); return m.type === 'images' ? `${m.urls?.length} images` : m.type === 'audio' ? `${Math.round(m.duration||0)}s audio` : m.type === 'video' ? `${m.scenes} scenes video` : 'media'; } catch { return 'media'; }
+                              })() : null;
                               return (
                                 <button
                                   key={nodeId}
@@ -1078,7 +1091,7 @@ export default function DevOrchestrator() {
                                     <div className="text-[11px] font-semibold text-gray-200 truncate">{node?.customLabel || tmpl?.label}</div>
                                     <div className="text-[10px] text-gray-600 truncate font-mono">{mapping?.name || `${tid}.md`}</div>
                                     <div className={`text-[10px] font-semibold mt-0.5 ${isErr ? 'text-red-400' : 'text-emerald-500'}`}>
-                                      {isErr ? '✗ error' : `✓ ${lines.toLocaleString()} lines`}
+                                      {isErr ? '✗ error' : isMedia ? `✓ ${mediaLabel}` : `✓ ${lines.toLocaleString()} lines`}
                                     </div>
                                   </div>
                                 </button>
@@ -1095,11 +1108,13 @@ export default function DevOrchestrator() {
                       <div className="flex gap-2">
                         <button
                           onClick={() => {
-                            const allText = Object.entries(outputs).map(([id, out]) => {
-                              const node = nodes.find((n) => n.id === id);
-                              const tmpl = NODE_TEMPLATES.find((t) => t.id === (node?.templateId || id));
-                              return `# ${tmpl?.label || id}\n\n${out}`;
-                            }).join('\n\n---\n\n');
+                            const allText = Object.entries(outputs)
+                              .filter(([, out]) => !isMediaOutput(out))
+                              .map(([id, out]) => {
+                                const node = nodes.find((n) => n.id === id);
+                                const tmpl = NODE_TEMPLATES.find((t) => t.id === (node?.templateId || id));
+                                return `# ${tmpl?.label || id}\n\n${out}`;
+                              }).join('\n\n---\n\n');
                             navigator.clipboard.writeText(allText);
                           }}
                           className="text-xs px-3 py-1 rounded-lg bg-gray-800 border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
@@ -1126,7 +1141,8 @@ export default function DevOrchestrator() {
                       {Object.entries(outputs).map(([nodeId, output]) => {
                         const node = nodes.find((n) => n.id === nodeId);
                         const tmpl = NODE_TEMPLATES.find((t) => t.id === (node?.templateId || nodeId));
-                        const isError = nodeStatuses[nodeId] === 'error' || (typeof output === 'string' && output.startsWith('ERROR:'));
+                        const isMedia = isMediaOutput(output);
+                        const isError = !isMedia && (nodeStatuses[nodeId] === 'error' || (typeof output === 'string' && output.startsWith('ERROR:')));
                         const modelId = modelsUsed[nodeId];
                         const model = modelId ? MODEL_OPTIONS.find((m) => m.id === modelId) : null;
                         const isRaw = rawMode[nodeId];
@@ -1153,7 +1169,7 @@ export default function DevOrchestrator() {
                                   ? <span className="text-[10px] px-2 py-0.5 rounded bg-red-950/50 text-red-400 border border-red-900/30">✗ Error</span>
                                   : <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-950/50 text-emerald-400 border border-emerald-900/30">✓ Complete</span>
                                 }
-                                {!isError && (
+                                {!isError && !isMedia && (
                                   <button
                                     onClick={() => setRawMode((prev) => ({ ...prev, [nodeId]: !isRaw }))}
                                     className="text-[10px] px-2 py-0.5 rounded border border-gray-700/40 bg-gray-800/40 text-gray-500 hover:text-gray-300 transition-colors"
@@ -1161,7 +1177,7 @@ export default function DevOrchestrator() {
                                     {isRaw ? 'Rendered' : 'Raw'}
                                   </button>
                                 )}
-                                <CopyButton text={output} />
+                                {!isMedia && <CopyButton text={output} />}
                                 <button
                                   onClick={() => retryNode(nodeId)}
                                   disabled={isRunning}
@@ -1174,7 +1190,11 @@ export default function DevOrchestrator() {
                             </div>
 
                             {/* Content */}
-                            {isError || isRaw ? (
+                            {isMediaOutput(output) ? (
+                              <div className="p-4">
+                                <MediaViewer output={output} />
+                              </div>
+                            ) : isError || isRaw ? (
                               <pre className={`p-4 text-xs whitespace-pre-wrap font-mono max-h-[500px] overflow-y-auto ${isError ? 'text-red-400' : 'text-gray-400'}`}>
                                 {output}
                               </pre>

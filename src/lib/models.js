@@ -792,6 +792,54 @@ Deliver a document ready to hand to a developer.`,
 
 Deliver thorough, structured output in markdown format.`,
   },
+
+  // ── Real Media Generation Nodes ────────────────────────────────────────────
+  // These nodes call actual media APIs (DALL-E 3, OpenAI TTS, Canvas composer).
+  // They do NOT use callModel() — pipeline.js routes them to mediaApi.js.
+
+  {
+    id: 'image_gen',
+    label: 'Generate Images',
+    icon: '🖼️',
+    color: '#ec4899',
+    category: 'media',
+    modelTier: 'frontier',
+    isMediaNode: true,
+    mediaType: 'image_gen',
+    desc: 'Generates REAL images using DALL-E 3 from upstream scene prompts',
+    webSearch: false,
+    systemPrompt: `Extract scene descriptions from the upstream content and generate clear, vivid image prompts.
+Each prompt should describe a specific visual scene in rich detail — lighting, style, mood, characters, action.
+Format output as a numbered list, one scene per line.`,
+  },
+  {
+    id: 'tts_audio',
+    label: 'Audio Narration',
+    icon: '🎙️',
+    color: '#8b5cf6',
+    category: 'media',
+    modelTier: 'frontier',
+    isMediaNode: true,
+    mediaType: 'tts_audio',
+    desc: 'Generates REAL voiceover audio using OpenAI TTS from your video script',
+    webSearch: false,
+    systemPrompt: `Write a clean narration script from the upstream video script.
+Remove all markdown, stage directions, and technical notes — output only the spoken words.
+Keep it natural and engaging, suitable for voiceover.`,
+  },
+  {
+    id: 'video_compose',
+    label: 'Compose Video',
+    icon: '🎥',
+    color: '#ef4444',
+    category: 'media',
+    modelTier: 'frontier',
+    isMediaNode: true,
+    mediaType: 'video_compose',
+    desc: 'Assembles generated images + audio into a REAL downloadable video file',
+    webSearch: false,
+    systemPrompt: ``,
+  },
 ];
 
 // Helper — returns category id for a template (defaults to 'code' for legacy templates)
@@ -960,6 +1008,37 @@ export const PIPELINE_TEMPLATES = [
       ['data_analysis', 'ml_pipeline'],
       ['ml_pipeline', 'tests'],
       ['tests', 'deploy'],
+    ],
+  },
+  {
+    id: 'youtube_short',
+    label: '▶ YouTube Short',
+    icon: '📱',
+    desc: 'Script → REAL images → REAL audio → REAL composited vertical video (9:16)',
+    nodes: ['video_script', 'image_gen', 'tts_audio', 'video_compose', 'social_media'],
+    edges: [
+      ['video_script', 'image_gen'],
+      ['video_script', 'tts_audio'],
+      ['image_gen', 'video_compose'],
+      ['tts_audio', 'video_compose'],
+      ['video_compose', 'social_media'],
+    ],
+  },
+  {
+    id: 'full_video',
+    label: '🎬 Full Video Production',
+    icon: '🎬',
+    desc: 'Full pipeline: brief → script → brand → REAL images → REAL audio → REAL video → social',
+    nodes: ['requirements', 'brand_guide', 'video_script', 'image_gen', 'tts_audio', 'video_compose', 'social_media'],
+    edges: [
+      ['requirements', 'video_script'],
+      ['requirements', 'brand_guide'],
+      ['brand_guide', 'video_script'],
+      ['video_script', 'image_gen'],
+      ['video_script', 'tts_audio'],
+      ['image_gen', 'video_compose'],
+      ['tts_audio', 'video_compose'],
+      ['video_compose', 'social_media'],
     ],
   },
 ];
