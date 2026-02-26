@@ -6,6 +6,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
+      host: '127.0.0.1',
       proxy: {
         '/api/proxy/anthropic': {
           target: 'https://api.anthropic.com',
