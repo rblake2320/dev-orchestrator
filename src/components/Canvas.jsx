@@ -35,6 +35,7 @@ function NodeCard({ node, pos, w, h, isSelected, status, onClick }) {
     done: '#10b981',
     waiting: '#f59e0b',
     error: '#ef4444',
+    skipped: '#4b5563',
   };
 
   const border = isSelected ? '#fff' : statusColors[status] || statusColors.idle;
@@ -45,7 +46,9 @@ function NodeCard({ node, pos, w, h, isSelected, status, onClick }) {
         ? `${template.color}11`
         : status === 'error'
           ? '#7f1d1d22'
-          : '#111827';
+          : status === 'skipped'
+            ? '#1f293722'
+            : '#111827';
 
   return (
     <g onClick={onClick} style={{ cursor: 'pointer' }}>
@@ -112,6 +115,11 @@ function NodeCard({ node, pos, w, h, isSelected, status, onClick }) {
       {status === 'error' && (
         <text x={pos.x + w - 24} y={pos.y + 28} fontSize="14" fill="#ef4444">
           ✗
+        </text>
+      )}
+      {status === 'skipped' && (
+        <text x={pos.x + w - 24} y={pos.y + 28} fontSize="14" fill="#4b5563">
+          ⊘
         </text>
       )}
       {status === 'running' && (

@@ -129,6 +129,7 @@ export async function executePipeline({
   onLog,
 }) {
   const outputs = {};
+  const failedNodes = new Set(); // tracks errored + skipped nodes for propagation
 
   // Determine execution order based on mode
   let executionLevels;
@@ -152,17 +153,43 @@ export async function executePipeline({
   for (const level of executionLevels) {
     if (signal?.aborted) throw new DOMException('Pipeline aborted', 'AbortError');
 
-    const parallelLabel = level.length > 1 ? ' (parallel)' : '';
-    const names = level
+    // In DAG/sequential modes: skip nodes whose upstream dependency failed
+    const skipped = [];
+    const runnable = [];
+    for (const nodeId of level) {
+      if (mode !== 'parallel') {
+        const upstreamDeps = edges
+          .filter(([, to]) => to === nodeId)
+          .map(([from]) => from);
+        if (upstreamDeps.some((id) => failedNodes.has(id))) {
+          skipped.push(nodeId);
+          continue;
+        }
+      }
+      runnable.push(nodeId);
+    }
+
+    // Mark skipped nodes and propagate failure
+    for (const nodeId of skipped) {
+      failedNodes.add(nodeId);
+      const template = NODE_TEMPLATES.find((t) => t.id === nodeId);
+      onStatusChange(nodeId, 'skipped');
+      onLog(`⊘ ${template?.label || nodeId} skipped (upstream failed)`);
+    }
+
+    if (runnable.length === 0) continue;
+
+    const parallelLabel = runnable.length > 1 ? ' (parallel)' : '';
+    const names = runnable
       .map((id) => NODE_TEMPLATES.find((t) => t.id === id)?.label || id)
       .join(', ');
     onLog(`▶ Running: ${names}${parallelLabel}`);
 
     // Mark running
-    level.forEach((id) => onStatusChange(id, 'running'));
+    runnable.forEach((id) => onStatusChange(id, 'running'));
 
-    // Execute all nodes in this level concurrently
-    const promises = level.map(async (nodeId) => {
+    // Execute all runnable nodes in this level concurrently
+    const promises = runnable.map(async (nodeId) => {
       const node = nodes.find((n) => n.id === nodeId);
       if (!node) return;
 
@@ -178,6 +205,7 @@ export async function executePipeline({
         onLog(`✓ ${template?.label || nodeId} complete`);
       } catch (err) {
         if (err.name === 'AbortError') throw err;
+        failedNodes.add(nodeId); // propagate to downstream
         outputs[nodeId] = `ERROR: ${err.message}`;
         onOutput(nodeId, `ERROR: ${err.message}`);
         onStatusChange(nodeId, 'error');

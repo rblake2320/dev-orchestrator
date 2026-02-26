@@ -15,6 +15,17 @@ function getRequestConfig(provider, apiKey) {
     return { url, headers, format: 'ollama' };
   }
 
+  // Gemini uses OpenAI-compat but at a non-standard path
+  if (provider === 'gemini') {
+    if (apiKey) {
+      url = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    } else {
+      url = config.proxyPath + '/chat/completions';
+    }
+    return { url, headers, format: 'openai' };
+  }
+
   if (apiKey) {
     if (provider === 'anthropic') {
       url = config.baseUrl + '/v1/messages';
@@ -96,6 +107,9 @@ export async function callModel(systemPrompt, userMessage, modelOptionId, signal
     anthropic: settings.anthropicKey || '',
     openai: settings.openaiKey || '',
     groq: settings.groqKey || '',
+    gemini: settings.geminiKey || '',
+    openrouter: settings.openrouterKey || '',
+    deepseek: settings.deepseekKey || '',
     ollama: '', // no key needed
   };
 

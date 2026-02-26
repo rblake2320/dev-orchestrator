@@ -4,6 +4,7 @@ import { executePipeline } from '../lib/pipeline';
 import Canvas from './Canvas';
 import NodeInspector from './NodeInspector';
 import TemplateSelector from './TemplateSelector';
+import Settings from './Settings';
 
 export default function DevOrchestrator() {
   // ─── State ──────────────────────────────────────────────────────────
@@ -20,6 +21,7 @@ export default function DevOrchestrator() {
   const [outputs, setOutputs] = useState({});
   const [activeTab, setActiveTab] = useState('canvas');
   const [executionLog, setExecutionLog] = useState([]);
+  const [showSettings, setShowSettings] = useState(false);
   const abortRef = useRef(null);
 
   const selectedNodeData = useMemo(
@@ -193,8 +195,17 @@ export default function DevOrchestrator() {
               ↻ Reset
             </button>
           )}
+          <button
+            onClick={() => setShowSettings(true)}
+            className="text-xs px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors"
+            title="API Keys & Provider Settings"
+          >
+            ⚙️ Settings
+          </button>
         </div>
       </header>
+
+      {showSettings && <Settings onClose={() => setShowSettings(false)} />}
 
       <div className="flex" style={{ height: 'calc(100vh - 57px)' }}>
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -390,24 +401,36 @@ export default function DevOrchestrator() {
                         const tmpl = NODE_TEMPLATES.find(
                           (t) => t.id === nodeId
                         );
+                        const isError =
+                          nodeStatuses[nodeId] === 'error' ||
+                          (typeof output === 'string' && output.startsWith('ERROR:'));
                         return (
                           <div
                             key={nodeId}
-                            className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden"
+                            className="bg-gray-900 border rounded-xl overflow-hidden"
+                            style={{ borderColor: isError ? '#7f1d1d' : '#1f2937' }}
                           >
                             <div
                               className="px-4 py-3 border-b border-gray-800 flex items-center gap-2"
-                              style={{ background: `${tmpl?.color}08` }}
+                              style={{ background: isError ? '#7f1d1d15' : `${tmpl?.color}08` }}
                             >
                               <span className="text-base">{tmpl?.icon}</span>
                               <span className="text-sm font-semibold text-gray-100">
                                 {tmpl?.label}
                               </span>
-                              <span className="ml-auto text-[10px] px-2 py-0.5 rounded bg-emerald-950/50 text-emerald-400 border border-emerald-900/30">
-                                ✓ Complete
-                              </span>
+                              {isError ? (
+                                <span className="ml-auto text-[10px] px-2 py-0.5 rounded bg-red-950/50 text-red-400 border border-red-900/30">
+                                  ✗ Error
+                                </span>
+                              ) : (
+                                <span className="ml-auto text-[10px] px-2 py-0.5 rounded bg-emerald-950/50 text-emerald-400 border border-emerald-900/30">
+                                  ✓ Complete
+                                </span>
+                              )}
                             </div>
-                            <pre className="p-4 text-xs text-gray-400 whitespace-pre-wrap font-mono max-h-96 overflow-y-auto">
+                            <pre
+                              className={`p-4 text-xs whitespace-pre-wrap font-mono max-h-96 overflow-y-auto ${isError ? 'text-red-400' : 'text-gray-400'}`}
+                            >
                               {output}
                             </pre>
                           </div>

@@ -24,6 +24,24 @@ export const PROVIDER_CONFIGS = {
     proxyPath: '/api/proxy/ollama',
     defaultModel: 'llama3.1',
   },
+  gemini: {
+    label: 'Google Gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    proxyPath: '/api/proxy/gemini',
+    defaultModel: 'gemini-2.0-flash',
+  },
+  openrouter: {
+    label: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api',
+    proxyPath: '/api/proxy/openrouter',
+    defaultModel: 'anthropic/claude-sonnet-4-5',
+  },
+  deepseek: {
+    label: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com',
+    proxyPath: '/api/proxy/deepseek',
+    defaultModel: 'deepseek-chat',
+  },
 };
 
 const SETTINGS_KEY = 'devo_settings';

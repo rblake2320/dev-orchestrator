@@ -38,6 +38,30 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           rewrite: (p) => p.replace(/^\/api\/proxy\/ollama/, ''),
         },
+        '/api/proxy/gemini': {
+          target: 'https://generativelanguage.googleapis.com',
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/api\/proxy\/gemini/, '/v1beta/openai'),
+          ...(env.GEMINI_API_KEY && {
+            headers: { Authorization: `Bearer ${env.GEMINI_API_KEY}` },
+          }),
+        },
+        '/api/proxy/openrouter': {
+          target: 'https://openrouter.ai',
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/api\/proxy\/openrouter/, '/api'),
+          ...(env.OPENROUTER_API_KEY && {
+            headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}` },
+          }),
+        },
+        '/api/proxy/deepseek': {
+          target: 'https://api.deepseek.com',
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/api\/proxy\/deepseek/, ''),
+          ...(env.DEEPSEEK_API_KEY && {
+            headers: { Authorization: `Bearer ${env.DEEPSEEK_API_KEY}` },
+          }),
+        },
       },
     },
   };

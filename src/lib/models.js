@@ -183,7 +183,12 @@ export const MODEL_OPTIONS = [
   { id: 'llama-70b',      label: 'Llama 70B (Groq)',    provider: 'groq',      model: 'llama-3.3-70b-versatile',  tier: 'mid',      badge: '🏎️', color: '#8b5cf6' },
   { id: 'ollama-llama',   label: 'Llama (Local)',        provider: 'ollama',    model: 'llama3.1',                 tier: 'local',    badge: '🏠', color: '#f97316' },
   { id: 'ollama-mistral', label: 'Mistral (Local)',      provider: 'ollama',    model: 'mistral',                  tier: 'local',    badge: '🏠', color: '#ec4899' },
-  { id: 'ollama-gemma',   label: 'Gemma (Local)',        provider: 'ollama',    model: 'gemma2',                   tier: 'local',    badge: '🏠', color: '#14b8a6' },
+  { id: 'ollama-gemma',      label: 'Gemma (Local)',         provider: 'ollama',      model: 'gemma2',                              tier: 'local',    badge: '🏠', color: '#14b8a6' },
+  { id: 'gemini-flash',      label: 'Gemini 2.0 Flash',      provider: 'gemini',      model: 'gemini-2.0-flash',                    tier: 'frontier', badge: '✦',  color: '#4285f4' },
+  { id: 'gemini-pro',        label: 'Gemini 1.5 Pro',         provider: 'gemini',      model: 'gemini-1.5-pro',                      tier: 'frontier', badge: '✦',  color: '#34a853' },
+  { id: 'openrouter-claude', label: 'Claude (OpenRouter)',    provider: 'openrouter',  model: 'anthropic/claude-sonnet-4-5',         tier: 'frontier', badge: '🔀', color: '#7c3aed' },
+  { id: 'deepseek-chat',     label: 'DeepSeek Chat',          provider: 'deepseek',    model: 'deepseek-chat',                       tier: 'mid',      badge: '🤖', color: '#0891b2' },
+  { id: 'deepseek-r1',       label: 'DeepSeek R1',            provider: 'deepseek',    model: 'deepseek-reasoner',                   tier: 'frontier', badge: '🧠', color: '#0e7490' },
 ];
 
 // Auto-select best model for a tier
