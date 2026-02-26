@@ -9,7 +9,7 @@ const AI_PROVIDERS = [
   { key: 'anthropic',   label: 'Anthropic',      icon: '◆',  color: '#d97706', settingKey: 'anthropicKey',  placeholder: 'sk-ant-api03-…',  docsUrl: 'console.anthropic.com', testModel: 'claude-haiku-4-5-20251001', testFormat: 'anthropic' },
   { key: 'openai',      label: 'OpenAI',          icon: '⬡',  color: '#10b981', settingKey: 'openaiKey',     placeholder: 'sk-proj-…',        docsUrl: 'platform.openai.com',   testModel: 'gpt-4o-mini',              testFormat: 'openai'    },
   { key: 'groq',        label: 'Groq',            icon: '⚡',  color: '#8b5cf6', settingKey: 'groqKey',       placeholder: 'gsk_…',            docsUrl: 'console.groq.com',      testModel: 'llama-3.1-8b-instant',     testFormat: 'openai'    },
-  { key: 'gemini',      label: 'Google Gemini',   icon: '✦',  color: '#4285f4', settingKey: 'geminiKey',     placeholder: 'AIza…',            docsUrl: 'aistudio.google.com',   testModel: 'gemini-2.0-flash',         testFormat: 'gemini'    },
+  { key: 'gemini',      label: 'Google Gemini',   icon: '✦',  color: '#4285f4', settingKey: 'geminiKey',     placeholder: 'AIza…',            docsUrl: 'aistudio.google.com',   testModel: 'gemini-2.0-flash-001',     testFormat: 'gemini'    },
   { key: 'openrouter',  label: 'OpenRouter',      icon: '🔀', color: '#7c3aed', settingKey: 'openrouterKey', placeholder: 'sk-or-v1-…',       docsUrl: 'openrouter.ai/keys',    testModel: 'openai/gpt-4o-mini',       testFormat: 'openai'    },
   { key: 'deepseek',    label: 'DeepSeek',        icon: '🤖', color: '#0891b2', settingKey: 'deepseekKey',   placeholder: 'sk-…',             docsUrl: 'platform.deepseek.com', testModel: 'deepseek-chat',            testFormat: 'openai'    },
 ];
